@@ -1,0 +1,7 @@
+digraph hello {
+    goal="Say hello to the user";
+    start [shape=Mdiamond];
+    greet [shape=box, prompt="Say hello in a creative way"];
+    done  [shape=Msquare];
+    start -> greet -> done;
+}

@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "attractor"
+version = "0.1.0"
+description = "DOT-based directed graph pipeline runner for multi-stage AI workflows"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+dependencies = [
+    "pydantic>=2.0",
+    "httpx>=0.27",
+    "anyio>=4.0",
+    "pydot>=3.0",
+]
+
+[project.scripts]
+attractor = "attractor.cli:main"
+
+[project.optional-dependencies]
+openai = ["openai>=1.50"]
+anthropic = ["anthropic>=0.40"]
+gemini = ["google-genai>=1.0"]
+all = ["attractor[openai,anthropic,gemini]"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
