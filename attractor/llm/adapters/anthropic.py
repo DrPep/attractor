@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, AsyncIterator
 
 from ..adapter import ProviderAdapter
 from ..models import (
     ContentKind, ContentPart, FinishReason, Message, Request, Response,
-    Role, ToolCallData, ToolDefinition, Usage,
+    Role, ToolDefinition, Usage,
 )
 from ..streaming import StreamEvent
+
+logger = logging.getLogger(__name__)
 
 
 class AnthropicAdapter(ProviderAdapter):
@@ -222,6 +225,19 @@ class AnthropicAdapter(ProviderAdapter):
         client = self._get_client()
         system, remaining = self._extract_system(request.messages)
         messages = self._translate_messages(remaining)
+
+        if not messages:
+            logger.error(
+                "No translatable messages for Anthropic API "
+                "(original: %d, after system extraction: %d)",
+                len(request.messages), len(remaining),
+            )
+            raise ValueError(
+                "Cannot send request: no messages after system extraction. "
+                f"Original message count: {len(request.messages)}, "
+                f"roles: {[m.role.value for m in request.messages]}"
+            )
+
         system, messages = self._inject_cache_control(system, messages)
 
         kwargs: dict[str, Any] = {
@@ -257,6 +273,14 @@ class AnthropicAdapter(ProviderAdapter):
         client = self._get_client()
         system, remaining = self._extract_system(request.messages)
         messages = self._translate_messages(remaining)
+
+        if not messages:
+            raise ValueError(
+                "Cannot send request: no messages after system extraction. "
+                f"Original message count: {len(request.messages)}, "
+                f"roles: {[m.role.value for m in request.messages]}"
+            )
+
         system, messages = self._inject_cache_control(system, messages)
 
         kwargs: dict[str, Any] = {

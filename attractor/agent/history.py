@@ -92,6 +92,11 @@ class ConversationHistory:
             kept.insert(0, msg)
             running += msg_tokens
 
+        # Always keep at least the most recent non-system message so the
+        # request to the LLM is never empty after system extraction.
+        if not kept and non_system:
+            kept = [non_system[-1]]
+
         if len(kept) < len(non_system):
             summary = Message.system(
                 "[Earlier conversation truncated to fit context window]"

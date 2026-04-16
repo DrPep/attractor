@@ -14,6 +14,7 @@ dependencies = [
     "httpx>=0.27",
     "anyio>=4.0",
     "pydot>=3.0",
+    "rich>=13.0",
 ]
 
 [project.scripts]

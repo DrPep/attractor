@@ -52,8 +52,11 @@ class PipelineRunner:
         skill_registry: Any = None,
         model_override: str | None = None,
         provider_override: str | None = None,
-        on_node_start: Callable[[str], Any] | None = None,
+        on_node_start: Callable[[str], Any] | Callable[[Node, int, int], Any] | None = None,
         on_node_end: Callable[[str, str], Any] | None = None,
+        on_edge: Callable[[str, str, str], Any] | None = None,
+        on_retry: Callable[[str, int, int, float], Any] | None = None,
+        on_agent_event: Callable[..., Any] | None = None,
     ):
         self._client = client
         self._interviewer = interviewer or AutoApproveInterviewer()
@@ -63,9 +66,12 @@ class PipelineRunner:
             skill_registry=skill_registry,
             model_override=model_override,
             provider_override=provider_override,
+            on_agent_event=on_agent_event,
         )
         self._on_node_start = on_node_start
         self._on_node_end = on_node_end
+        self._on_edge = on_edge
+        self._on_retry = on_retry
 
     async def run(
         self,
@@ -159,7 +165,13 @@ class PipelineRunner:
                     break
 
                 if self._on_node_start:
-                    self._on_node_start(current_node_id)
+                    import inspect
+                    sig = inspect.signature(self._on_node_start)
+                    if len(sig.parameters) >= 3:
+                        total = len(graph.nodes)
+                        self._on_node_start(node, len(result.nodes_executed) + 1, total)
+                    else:
+                        self._on_node_start(current_node_id)
 
                 logger.info("Executing node: %s (%s)", node.id, node.type.value)
 
@@ -243,6 +255,9 @@ class PipelineRunner:
                     )
                     break
 
+                if self._on_edge:
+                    self._on_edge(node.id, next_edge.target, next_edge.label or "")
+
                 current_node_id = next_edge.target
 
             if iteration >= max_iterations:
@@ -290,6 +305,8 @@ class PipelineRunner:
                         "Node %s returned retry, attempt %d/%d (delay %.1fs)",
                         node.id, attempt + 1, max_retries, delay,
                     )
+                    if self._on_retry:
+                        self._on_retry(node.id, attempt + 1, max_retries, delay)
                     await asyncio.sleep(delay)
                     continue
 
@@ -301,6 +318,8 @@ class PipelineRunner:
                         "Node %s failed, retrying %d/%d (delay %.1fs)",
                         node.id, attempt + 1, max_retries, delay,
                     )
+                    if self._on_retry:
+                        self._on_retry(node.id, attempt + 1, max_retries, delay)
                     await asyncio.sleep(delay)
                     continue
 

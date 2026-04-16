@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ...llm.client import Client
 from ...agent.session import Session
@@ -28,11 +28,13 @@ class CodergenHandler(Handler):
         skill_registry: SkillRegistry | None = None,
         model_override: str | None = None,
         provider_override: str | None = None,
+        on_agent_event: Callable[[Any], Any] | None = None,
     ):
         self._client = client
         self._skill_registry = skill_registry or SkillRegistry()
         self._model_override = model_override
         self._provider_override = provider_override
+        self._on_agent_event = on_agent_event
 
     async def execute(
         self, node: Node, context: PipelineContext,
@@ -111,6 +113,9 @@ class CodergenHandler(Handler):
                 config=config,
                 tool_registry=tool_registry,
             )
+
+            if self._on_agent_event:
+                session.on_all_events(self._on_agent_event)
 
             result = await session.submit(prompt)
             response_text = result.final_response

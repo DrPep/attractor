@@ -92,17 +92,25 @@ async def _cmd_run(args: argparse.Namespace) -> int:
         skill_registry = SkillRegistry()
         skill_registry.load_dir(args.skills_dir)
 
+    from .pipeline.progress import ProgressTracker
+
+    tracker = ProgressTracker()
+
     runner = PipelineRunner(
         client=client,
         skill_registry=skill_registry,
         model_override=args.model,
         provider_override=args.provider,
-        on_node_start=lambda n: print(f"  ▶ {n}"),
-        on_node_end=lambda n, o: print(f"  {'✓' if o == 'success' else '✗'} {n} → {o}"),
+        on_node_start=tracker.on_node_start,
+        on_node_end=tracker.on_node_end,
+        on_edge=tracker.on_edge,
+        on_retry=tracker.on_retry,
+        on_agent_event=tracker.on_agent_event,
     )
 
     dot_source = dotfile.read_text(encoding="utf-8")
     result = await runner.run(dot_source, run_dir=args.run_dir, resume=args.resume)
+    tracker.stop()
 
     print()
     if result.success:
