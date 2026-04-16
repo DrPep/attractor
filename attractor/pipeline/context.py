@@ -73,6 +73,22 @@ class PipelineContext:
             data = data[part]
         data[parts[-1]] = value
 
+    def keys(self) -> list[str]:
+        """Return all top-level dotted keys (flattened)."""
+        with self._lock:
+            result: list[str] = []
+            self._collect_keys(self._data, "", result)
+            return result
+
+    @staticmethod
+    def _collect_keys(data: dict[str, Any], prefix: str, result: list[str]) -> None:
+        for key, value in data.items():
+            full = f"{prefix}{key}" if not prefix else f"{prefix}.{key}"
+            if isinstance(value, dict):
+                PipelineContext._collect_keys(value, full, result)
+            else:
+                result.append(full)
+
     def __contains__(self, key: str) -> bool:
         return self.get(key) is not None
 

@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-03-27T05:09:54.290465+00:00",
+  "run_id": "28976f8a3ed2",
+  "current_node": "done",
+  "completed_nodes": [
+    "start",
+    "greet",
+    "done"
+  ],
+  "node_retries": {},
+  "context_snapshot": {
+    "graph": {
+      "goal": "Say hello to the user"
+    },
+    "run_id": "28976f8a3ed2",
+    "current_node": "done"
+  }
+}

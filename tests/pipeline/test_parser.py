@@ -108,3 +108,90 @@ def test_invalid_dot_raises():
 def test_non_digraph_raises():
     with pytest.raises(ParseError):
         parse_dot("graph G { a -- b; }")
+
+
+# ── Spec constraint tests (§2.3) ────────────────────────────────────────
+
+
+def test_reject_strict_modifier():
+    with pytest.raises(ParseError, match="strict"):
+        parse_dot("strict digraph G { a -> b; }")
+
+
+def test_reject_multiple_digraphs():
+    with pytest.raises(ParseError, match="one digraph"):
+        parse_dot("digraph A { a -> b; }\ndigraph B { c -> d; }")
+
+
+def test_reject_undirected_edge():
+    with pytest.raises(ParseError, match="Undirected edges"):
+        parse_dot("""digraph G {
+            start [shape=Mdiamond];
+            done [shape=Msquare];
+            start -- done;
+        }""")
+
+
+def test_reject_quoted_node_id_with_spaces():
+    with pytest.raises(ParseError, match="bare identifier"):
+        parse_dot("""digraph G {
+            start [shape=Mdiamond];
+            "hello world" [shape=box];
+            done [shape=Msquare];
+            start -> "hello world" -> done;
+        }""")
+
+
+def test_reject_attrs_without_commas():
+    with pytest.raises(ParseError, match="comma-separated"):
+        parse_dot("""digraph G {
+            start [shape=Mdiamond];
+            work [shape=box prompt="Do work"];
+            done [shape=Msquare];
+            start -> work -> done;
+        }""")
+
+
+def test_accept_valid_bare_ids():
+    graph = parse_dot("""digraph G {
+        start [shape=Mdiamond];
+        my_node_2 [shape=box, prompt="Work"];
+        _private [shape=box, prompt="Also work"];
+        done [shape=Msquare];
+        start -> my_node_2 -> _private -> done;
+    }""")
+    assert "my_node_2" in graph.nodes
+    assert "_private" in graph.nodes
+
+
+def test_accept_comments():
+    graph = parse_dot("""digraph G {
+        // This is a line comment
+        start [shape=Mdiamond];
+        /* This is a
+           block comment */
+        work [shape=box, prompt="Work"];
+        done [shape=Msquare];
+        start -> work -> done;
+    }""")
+    assert "work" in graph.nodes
+
+
+def test_accept_without_semicolons():
+    graph = parse_dot("""digraph G {
+        start [shape=Mdiamond]
+        work [shape=box, prompt="Work"]
+        done [shape=Msquare]
+        start -> work -> done
+    }""")
+    assert "work" in graph.nodes
+
+
+def test_reject_quoted_node_id_in_edge_target():
+    """Quoted IDs in edge targets (-> "bad id") should also be rejected."""
+    with pytest.raises(ParseError, match="bare identifier"):
+        parse_dot("""digraph G {
+            start [shape=Mdiamond];
+            done [shape=Msquare];
+            start -> "not valid" -> done;
+        }""")

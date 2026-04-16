@@ -29,15 +29,18 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("dotfile", type=Path, help="Path to .dot pipeline file")
     run_p.add_argument("--run-dir", type=Path, default=None, help="Directory for run artifacts")
     run_p.add_argument("--resume", action="store_true", help="Resume from last checkpoint")
-    run_p.add_argument("--model", default=None, help="Override LLM model (e.g. claude-sonnet-4-5)")
+    run_p.add_argument("--model", default=None, help="Override LLM model (e.g. claude-sonnet-4-6)")
     run_p.add_argument("--provider", default=None, help="Override LLM provider (openai, anthropic, gemini)")
+    run_p.add_argument("--skills-dir", type=Path, default=None, help="Directory to load skills from")
 
     # --- validate ---
     val_p = sub.add_parser("validate", help="Validate a DOT pipeline without executing")
     val_p.add_argument("dotfile", type=Path, help="Path to .dot pipeline file")
 
     # --- chat ---
-    sub.add_parser("chat", help="Start an interactive agent session")
+    chat_p = sub.add_parser("chat", help="Start an interactive agent session")
+    chat_p.add_argument("--model", default=None, help="Override LLM model (e.g. claude-sonnet-4-6)")
+    chat_p.add_argument("--provider", default=None, help="Override LLM provider (openai, anthropic, gemini)")
 
     args = parser.parse_args(argv)
 
@@ -57,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "validate":
         return _cmd_validate(args)
     if args.command == "chat":
-        return asyncio.run(_cmd_chat())
+        return asyncio.run(_cmd_chat(args))
 
     return 0
 
@@ -82,8 +85,18 @@ async def _cmd_run(args: argparse.Namespace) -> int:
         )
         return 1
 
+    # Load skills if a directory is specified
+    skill_registry = None
+    if args.skills_dir:
+        from .agent.skill import SkillRegistry
+        skill_registry = SkillRegistry()
+        skill_registry.load_dir(args.skills_dir)
+
     runner = PipelineRunner(
         client=client,
+        skill_registry=skill_registry,
+        model_override=args.model,
+        provider_override=args.provider,
         on_node_start=lambda n: print(f"  ▶ {n}"),
         on_node_end=lambda n, o: print(f"  {'✓' if o == 'success' else '✗'} {n} → {o}"),
     )
@@ -153,8 +166,10 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 
 # ── chat ─────────────────────────────────────────────────────────────────
 
-async def _cmd_chat() -> int:
+async def _cmd_chat(args: argparse.Namespace) -> int:
     from .agent.session import Session
+    from .agent.loop import SessionConfig
+    from .agent.provider_profile import ProviderProfile
     from .llm.client import Client
 
     client = Client.from_env()
@@ -166,7 +181,15 @@ async def _cmd_chat() -> int:
         )
         return 1
 
-    session = Session(client=client)
+    profile = None
+    config = None
+    if args.model or args.provider:
+        model = args.model or "claude-sonnet-4-6"
+        provider = args.provider or "anthropic"
+        profile = ProviderProfile(provider_name=provider, model=model)
+        config = SessionConfig(model=model, provider=provider)
+
+    session = Session(client=client, profile=profile, config=config)
 
     print(f"Attractor agent  (model: {session.config.model})")
     print("Type /quit to exit.\n")

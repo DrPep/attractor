@@ -56,6 +56,10 @@ class ToolRegistry:
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
 
+    def remove(self, name: str) -> None:
+        """Remove a tool by name. No-op if the tool is not registered."""
+        self._tools.pop(name, None)
+
     def get(self, name: str) -> Tool | None:
         return self._tools.get(name)
 

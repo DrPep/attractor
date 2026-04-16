@@ -119,3 +119,44 @@ def test_missing_prompt_warning():
     diagnostics = validate(graph)
     warnings = [d for d in diagnostics if d.severity == Severity.WARNING]
     assert any("prompt" in d.message.lower() for d in warnings)
+
+
+def test_unknown_skill_warning():
+    graph = Graph(
+        nodes={
+            "start": Node(id="start", type=NodeType.START),
+            "work": Node(
+                id="work", type=NodeType.CODERGEN,
+                attrs={"prompt": "do work", "skills": "code-review,nonexistent"},
+            ),
+            "end": Node(id="end", type=NodeType.EXIT),
+        },
+        edges=[
+            Edge(source="start", target="work"),
+            Edge(source="work", target="end"),
+        ],
+    )
+    diagnostics = validate(graph, known_skills={"code-review"})
+    warnings = [d for d in diagnostics if d.severity == Severity.WARNING]
+    assert any("nonexistent" in d.message for d in warnings)
+    assert not any("code-review" in d.message for d in warnings)
+
+
+def test_no_skill_warning_without_known_skills():
+    graph = Graph(
+        nodes={
+            "start": Node(id="start", type=NodeType.START),
+            "work": Node(
+                id="work", type=NodeType.CODERGEN,
+                attrs={"prompt": "do work", "skills": "anything"},
+            ),
+            "end": Node(id="end", type=NodeType.EXIT),
+        },
+        edges=[
+            Edge(source="start", target="work"),
+            Edge(source="work", target="end"),
+        ],
+    )
+    # Without known_skills, no skill warnings should be emitted
+    diagnostics = validate(graph)
+    assert not any("skill" in d.message.lower() for d in diagnostics)

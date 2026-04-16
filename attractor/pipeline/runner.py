@@ -49,13 +49,20 @@ class PipelineRunner:
         client: Client | None = None,
         handler_registry: HandlerRegistry | None = None,
         interviewer: Interviewer | None = None,
+        skill_registry: Any = None,
+        model_override: str | None = None,
+        provider_override: str | None = None,
         on_node_start: Callable[[str], Any] | None = None,
         on_node_end: Callable[[str, str], Any] | None = None,
     ):
         self._client = client
         self._interviewer = interviewer or AutoApproveInterviewer()
+        self._skill_registry = skill_registry
         self._registry = handler_registry or default_registry(
             client=client, interviewer=self._interviewer,
+            skill_registry=skill_registry,
+            model_override=model_override,
+            provider_override=provider_override,
         )
         self._on_node_start = on_node_start
         self._on_node_end = on_node_end
@@ -80,7 +87,10 @@ class PipelineRunner:
 
             # Phase 2: VALIDATE
             logger.info("Phase 2: VALIDATE")
-            warnings = validate_or_raise(graph)
+            known_skills = None
+            if self._skill_registry:
+                known_skills = {s.name for s in self._skill_registry.list_skills()}
+            warnings = validate_or_raise(graph, known_skills=known_skills)
             for w in warnings:
                 logger.warning("Validation: %s", w.message)
 
@@ -100,6 +110,7 @@ class PipelineRunner:
             completed_nodes: list[str] = []
             node_outcomes: dict[str, str] = {}
             node_retries: dict[str, int] = {}
+            node_visit_counts: dict[str, int] = {}
             start_node_id = ""
 
             if resume:
@@ -138,6 +149,15 @@ class PipelineRunner:
 
                 context.set("current_node", current_node_id)
 
+                # Enforce per-node max_iterations (0 = unlimited)
+                visit_count = node_visit_counts.get(current_node_id, 0) + 1
+                node_visit_counts[current_node_id] = visit_count
+                if node.max_iterations and visit_count > node.max_iterations:
+                    result.errors.append(
+                        f"Node '{node.id}' exceeded max_iterations ({node.max_iterations})"
+                    )
+                    break
+
                 if self._on_node_start:
                     self._on_node_start(current_node_id)
 
@@ -148,8 +168,9 @@ class PipelineRunner:
                     node, context, graph, run_dir, node_retries,
                 )
 
-                # Record completion
-                completed_nodes.append(node.id)
+                # Record completion (deduplicate in completed list)
+                if node.id not in completed_nodes:
+                    completed_nodes.append(node.id)
                 node_outcomes[node.id] = outcome.status
                 result.nodes_executed.append(node.id)
                 result.node_outcomes[node.id] = outcome.status

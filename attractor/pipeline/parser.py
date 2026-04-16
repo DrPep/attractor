@@ -2,11 +2,147 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
 from ..exceptions import ParseError
 from .graph import Edge, Graph, Node, NodeType, SHAPE_TO_TYPE, parse_attr_value
+
+# Matches valid bare identifiers per spec: [A-Za-z_][A-Za-z0-9_]*
+_VALID_NODE_ID = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+
+
+def _strip_comments(dot_string: str) -> str:
+    """Remove // line comments and /* block */ comments."""
+    # Block comments first
+    result = re.sub(r'/\*.*?\*/', '', dot_string, flags=re.DOTALL)
+    # Line comments
+    result = re.sub(r'//[^\n]*', '', result)
+    return result
+
+
+def _pre_validate(dot_string: str) -> None:
+    """Enforce spec constraints before handing to pydot.
+
+    Checks:
+    - One digraph per file (no multiple graphs)
+    - No strict modifier
+    - No undirected graphs or edges (--)
+    - Bare identifiers only for node IDs
+    - Commas required between attributes
+    """
+    stripped = _strip_comments(dot_string)
+
+    # Reject strict modifier
+    if re.search(r'(?i)\bstrict\b', stripped):
+        raise ParseError("'strict' modifier is not supported")
+
+    # Reject undirected graph keyword
+    # Match 'graph' at top level (not 'digraph', not inside attribute blocks)
+    # Look for 'graph' as a standalone keyword before '{'
+    header = stripped.split('{', 1)[0] if '{' in stripped else stripped
+    header_tokens = header.strip().split()
+    if header_tokens and header_tokens[0].lower() == 'graph':
+        raise ParseError("Only digraph is supported (undirected graph rejected)")
+
+    # Reject multiple digraphs
+    digraph_count = len(re.findall(r'\bdigraph\b', stripped, re.IGNORECASE))
+    if digraph_count > 1:
+        raise ParseError("Only one digraph per file is allowed")
+    if digraph_count == 0:
+        raise ParseError("No digraph found in input")
+
+    # Reject undirected edge operator (--)
+    # Must avoid matching inside quoted strings. Scan outside quotes only.
+    in_quotes = False
+    quote_char = None
+    i = 0
+    while i < len(stripped):
+        ch = stripped[i]
+        if in_quotes:
+            if ch == '\\':
+                i += 2
+                continue
+            if ch == quote_char:
+                in_quotes = False
+        else:
+            if ch in ('"', "'"):
+                in_quotes = True
+                quote_char = ch
+            elif ch == '-' and i + 1 < len(stripped) and stripped[i + 1] == '-':
+                # Check it's not -> (already past that since -> has > not -)
+                if i + 2 >= len(stripped) or stripped[i + 2] != '>':
+                    raise ParseError(
+                        "Undirected edges (--) are not supported, use -> for directed edges"
+                    )
+        i += 1
+
+    # Validate node IDs are bare identifiers and commas separate attributes.
+    # Extract attribute blocks [...] and node declarations.
+    _validate_node_ids_and_attrs(stripped)
+
+
+def _validate_node_ids_and_attrs(stripped: str) -> None:
+    """Validate node IDs and attribute comma separation."""
+    # Find the body between the first { and last }
+    brace_start = stripped.find('{')
+    brace_end = stripped.rfind('}')
+    if brace_start < 0 or brace_end < 0:
+        return
+    body = stripped[brace_start + 1:brace_end]
+
+    # Validate attribute blocks have commas between key-value pairs
+    for attr_match in re.finditer(r'\[([^\]]*)\]', body):
+        attr_content = attr_match.group(1).strip()
+        if not attr_content:
+            continue
+        _validate_attr_commas(attr_content, attr_match.start())
+
+    # To find quoted node IDs without matching attribute values,
+    # strip out attribute blocks and graph-level key=value assignments,
+    # then check any remaining quoted strings.
+    body_no_attrs = re.sub(r'\[[^\]]*\]', '', body)
+    # Remove graph-level attribute assignments (key = "value")
+    body_no_attrs = re.sub(
+        r'[A-Za-z_][A-Za-z0-9_]*\s*=\s*"(?:[^"\\]|\\.)*"', '', body_no_attrs,
+    )
+
+    # Any remaining quoted strings are node IDs — validate them
+    for match in re.finditer(r'"((?:[^"\\]|\\.)*)"', body_no_attrs):
+        quoted_id = match.group(1)
+        if not _VALID_NODE_ID.match(quoted_id):
+            raise ParseError(
+                f"Node ID '{quoted_id}' is not a valid bare identifier. "
+                f"IDs must match [A-Za-z_][A-Za-z0-9_]*. "
+                f"Use the 'label' attribute for human-readable names."
+            )
+
+
+def _validate_attr_commas(attr_content: str, offset: int) -> None:
+    """Validate that attributes inside [...] are comma-separated."""
+    # Split on commas (respecting quotes) and check that each piece has
+    # at most one key=value pair. If we find two key=value pairs in one
+    # segment, commas are missing.
+    #
+    # Strategy: find all key=value pairs, then check that between consecutive
+    # pairs there is a comma.
+    kv_pattern = re.compile(
+        r'([A-Za-z_][A-Za-z0-9_]*)\s*=\s*'
+        r'(?:"(?:[^"\\]|\\.)*"|[^,\]\s]+)'
+    )
+    matches = list(kv_pattern.finditer(attr_content))
+    if len(matches) <= 1:
+        return
+
+    for i in range(len(matches) - 1):
+        between = attr_content[matches[i].end():matches[i + 1].start()]
+        # There must be a comma in the gap between consecutive kv pairs
+        if ',' not in between:
+            raise ParseError(
+                f"Attributes must be comma-separated. Missing comma between "
+                f"'{matches[i].group().strip()}' and '{matches[i + 1].group().strip()}'"
+            )
 
 
 def parse_dot(source: str | Path) -> Graph:
@@ -25,6 +161,9 @@ def parse_dot(source: str | Path) -> Graph:
         dot_string = path.read_text(encoding="utf-8")
     else:
         dot_string = source
+
+    # Pre-validate against spec constraints before pydot parsing
+    _pre_validate(dot_string)
 
     try:
         graphs = pydot.graph_from_dot_data(dot_string)
@@ -82,15 +221,27 @@ def parse_dot(source: str | Path) -> Graph:
         edges = _parse_edge(dot_edge)
         graph.edges.extend(edges)
 
-    # Ensure all edge endpoints have node entries
+    # Validate all node IDs are bare identifiers
     all_node_ids = set(graph.nodes.keys())
     for edge in graph.edges:
         for node_id in (edge.source, edge.target):
-            if node_id not in all_node_ids:
+            all_node_ids.add(node_id)
+
+    for node_id in all_node_ids:
+        if not _VALID_NODE_ID.match(node_id):
+            raise ParseError(
+                f"Node ID '{node_id}' is not a valid bare identifier. "
+                f"IDs must match [A-Za-z_][A-Za-z0-9_]*. "
+                f"Use the 'label' attribute for human-readable names."
+            )
+
+    # Ensure all edge endpoints have node entries
+    for edge in graph.edges:
+        for node_id in (edge.source, edge.target):
+            if node_id not in graph.nodes:
                 graph.nodes[node_id] = Node(
                     id=node_id, label=node_id, type=NodeType.CODERGEN,
                 )
-                all_node_ids.add(node_id)
 
     return graph
 

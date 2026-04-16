@@ -128,6 +128,15 @@ class Node(BaseModel):
         return str(self.attrs.get("class", ""))
 
     @property
+    def max_iterations(self) -> int:
+        return int(self.attrs.get("max_iterations", 0))
+
+    @property
+    def skills(self) -> list[str]:
+        raw = str(self.attrs.get("skills", ""))
+        return [s.strip() for s in raw.split(",") if s.strip()]
+
+    @property
     def thread_id(self) -> str:
         return str(self.attrs.get("thread_id", ""))
 

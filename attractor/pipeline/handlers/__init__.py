@@ -31,6 +31,9 @@ class HandlerRegistry:
 def default_registry(
     client: Any = None,
     interviewer: Any = None,
+    skill_registry: Any = None,
+    model_override: str | None = None,
+    provider_override: str | None = None,
 ) -> HandlerRegistry:
     """Create a HandlerRegistry with all built-in handlers."""
     from ..interviewer import AutoApproveInterviewer
@@ -38,7 +41,10 @@ def default_registry(
     registry = HandlerRegistry()
     registry.register(NodeType.START, StartHandler())
     registry.register(NodeType.EXIT, ExitHandler())
-    registry.register(NodeType.CODERGEN, CodergenHandler(client=client))
+    registry.register(NodeType.CODERGEN, CodergenHandler(
+        client=client, skill_registry=skill_registry,
+        model_override=model_override, provider_override=provider_override,
+    ))
     registry.register(
         NodeType.WAIT_HUMAN,
         WaitHumanHandler(interviewer or AutoApproveInterviewer()),

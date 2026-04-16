@@ -29,11 +29,18 @@ MODELS: list[ModelInfo] = [
         output_cost_per_million=75.0, aliases=["opus"],
     ),
     ModelInfo(
+        id="claude-sonnet-4-6", provider="anthropic",
+        display_name="Claude Sonnet 4.6", context_window=200000,
+        max_output=16000, supports_tools=True, supports_vision=True,
+        supports_reasoning=True, input_cost_per_million=3.0,
+        output_cost_per_million=15.0, aliases=["sonnet"],
+    ),
+    ModelInfo(
         id="claude-sonnet-4-5", provider="anthropic",
         display_name="Claude Sonnet 4.5", context_window=200000,
         max_output=16000, supports_tools=True, supports_vision=True,
         supports_reasoning=True, input_cost_per_million=3.0,
-        output_cost_per_million=15.0, aliases=["sonnet"],
+        output_cost_per_million=15.0,
     ),
     ModelInfo(
         id="claude-haiku-4-5", provider="anthropic",

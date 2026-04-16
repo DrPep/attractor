@@ -24,7 +24,9 @@ class Diagnostic(BaseModel):
     suggested_fix: str = ""
 
 
-def validate(graph: Graph) -> list[Diagnostic]:
+def validate(
+    graph: Graph, known_skills: set[str] | None = None,
+) -> list[Diagnostic]:
     """Validate a pipeline graph. Returns list of diagnostics."""
     diagnostics: list[Diagnostic] = []
 
@@ -120,6 +122,18 @@ def validate(graph: Graph) -> list[Diagnostic]:
                 suggested_fix="Add a prompt attribute",
             ))
 
+    # Warn about unknown skill references
+    if known_skills is not None:
+        for node in graph.nodes.values():
+            for skill_name in node.skills:
+                if skill_name not in known_skills:
+                    diagnostics.append(Diagnostic(
+                        severity=Severity.WARNING,
+                        message=f"Node '{node.id}' references unknown skill '{skill_name}'",
+                        node_id=node.id,
+                        suggested_fix=f"Register skill '{skill_name}' or check for typos",
+                    ))
+
     # Warnings for goal_gate nodes without retry_target
     for node in graph.nodes.values():
         if node.goal_gate and not node.retry_target:
@@ -133,9 +147,11 @@ def validate(graph: Graph) -> list[Diagnostic]:
     return diagnostics
 
 
-def validate_or_raise(graph: Graph) -> list[Diagnostic]:
+def validate_or_raise(
+    graph: Graph, known_skills: set[str] | None = None,
+) -> list[Diagnostic]:
     """Validate and raise on ERROR diagnostics. Returns warnings/info."""
-    diagnostics = validate(graph)
+    diagnostics = validate(graph, known_skills=known_skills)
     errors = [d for d in diagnostics if d.severity == Severity.ERROR]
     if errors:
         msg = "; ".join(d.message for d in errors)
