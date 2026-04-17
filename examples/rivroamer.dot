@@ -1,0 +1,14 @@
+  digraph sdlc {
+      goal="Build a CLI tool which can query the status of a Rivian vehicle and pull a variety of statistics using tools like github.com/kaedenbrinkman/rivian-api and github.com/the-mace/rivian-python-api";
+      start [shape=Mdiamond];
+      code  [shape=box, prompt="Implement $goal", max_iterations=5];
+      test  [shape=box, prompt="Run the tests and report pass/fail"];
+      check [shape=diamond];
+      done  [shape=Msquare];
+
+      start -> code;
+      code  -> test;
+      test  -> check;
+      check -> code  [label="retry", condition="outcome=fail"];
+      check -> done  [condition="outcome=success"];
+  }
