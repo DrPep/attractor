@@ -14,6 +14,70 @@ class TruncationStrategy(str, Enum):
     HEAD_TAIL = "head_tail"
 
 
+def _tool_call_ids(msg: Message) -> set[str]:
+    return {
+        p.tool_call.id
+        for p in msg.content
+        if p.kind == ContentKind.TOOL_CALL and p.tool_call
+    }
+
+
+def _tool_result_ids(msg: Message) -> set[str]:
+    return {
+        p.tool_result.tool_call_id
+        for p in msg.content
+        if p.kind == ContentKind.TOOL_RESULT and p.tool_result
+    }
+
+
+def heal_orphan_tool_pairs(messages: list[Message]) -> list[Message]:
+    """Drop messages that would leave tool_use/tool_result pairs broken.
+
+    Anthropic (and others) reject requests where a tool_result appears without
+    the matching tool_use in the preceding assistant turn. Truncation can
+    produce exactly that: the kept window starts with a user message whose
+    first block is a tool_result referencing a tool_use we dropped.
+
+    Heals two orphan cases, iterating to a fixed point:
+      • tool_result blocks whose tool_call_id was never produced earlier in
+        the kept sequence (dropped);
+      • tool_use blocks not followed by matching tool_results later in the
+        kept sequence, except when the assistant message is the very last
+        one (that represents an in-flight turn, which is legal).
+    """
+    current = list(messages)
+    while True:
+        n = len(current)
+        produced_before: list[set[str]] = [set()] * n
+        seen: set[str] = set()
+        for i, m in enumerate(current):
+            produced_before[i] = set(seen)
+            seen |= _tool_call_ids(m)
+
+        results_after: list[set[str]] = [set()] * n
+        seen2: set[str] = set()
+        for i in range(n - 1, -1, -1):
+            results_after[i] = set(seen2)
+            seen2 |= _tool_result_ids(current[i])
+
+        dropped = False
+        out: list[Message] = []
+        for i, m in enumerate(current):
+            r_ids = _tool_result_ids(m)
+            if r_ids and not r_ids.issubset(produced_before[i]):
+                dropped = True
+                continue
+            c_ids = _tool_call_ids(m)
+            is_last = i == n - 1
+            if c_ids and not is_last and not c_ids.issubset(results_after[i]):
+                dropped = True
+                continue
+            out.append(m)
+        if not dropped:
+            return out
+        current = out
+
+
 def estimate_tokens(messages: list[Message]) -> int:
     """Rough token estimate: ~4 chars per token."""
     total = 0
@@ -97,6 +161,8 @@ class ConversationHistory:
         if not kept and non_system:
             kept = [non_system[-1]]
 
+        kept = heal_orphan_tool_pairs(kept)
+
         if len(kept) < len(non_system):
             summary = Message.system(
                 "[Earlier conversation truncated to fit context window]"
@@ -129,10 +195,14 @@ class ConversationHistory:
             tail.insert(0, msg)
             running += msg_tokens
 
-        if len(head) + len(tail) < len(non_system):
+        # Healing runs over the concatenation of head+tail, since the summary
+        # we'll insert between them is a SYSTEM message that some adapters pull
+        # out of the conversation — we can't rely on it to shield a broken pair.
+        combined = heal_orphan_tool_pairs(head + tail)
+        if len(combined) < len(non_system):
             summary = Message.system(
-                f"[{len(non_system) - len(head) - len(tail)} messages truncated]"
+                f"[{len(non_system) - len(combined)} messages truncated]"
             )
-            self._messages = system_msgs + head + [summary] + tail
+            self._messages = system_msgs + [summary] + combined
             return True
         return False
