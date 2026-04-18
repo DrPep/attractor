@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import functools
 import logging
 import sys
+import uuid
 from pathlib import Path
+from typing import Any, Callable
 
 from . import __version__
 
@@ -32,6 +35,15 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--model", default=None, help="Override LLM model (e.g. claude-sonnet-4-6)")
     run_p.add_argument("--provider", default=None, help="Override LLM provider (openai, anthropic, gemini)")
     run_p.add_argument("--skills-dir", type=Path, default=None, help="Directory to load skills from")
+    run_p.add_argument("--web", action="store_true", help="Launch web UI on --web-port during the run")
+    run_p.add_argument("--web-port", type=int, default=8765, help="Port for --web UI (default 8765)")
+    run_p.add_argument("--web-host", default="127.0.0.1", help="Host for --web UI (default 127.0.0.1)")
+
+    # --- serve ---
+    serve_p = sub.add_parser("serve", help="Launch the web UI over an existing runs/ directory")
+    serve_p.add_argument("--runs-dir", type=Path, default=Path("runs"), help="Directory of prior runs")
+    serve_p.add_argument("--port", type=int, default=8765, help="Port (default 8765)")
+    serve_p.add_argument("--host", default="127.0.0.1", help="Host (default 127.0.0.1)")
 
     # --- validate ---
     val_p = sub.add_parser("validate", help="Validate a DOT pipeline without executing")
@@ -61,6 +73,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_validate(args)
     if args.command == "chat":
         return asyncio.run(_cmd_chat(args))
+    if args.command == "serve":
+        return _cmd_serve(args)
 
     return 0
 
@@ -96,21 +110,43 @@ async def _cmd_run(args: argparse.Namespace) -> int:
 
     tracker = ProgressTracker()
 
+    dot_source = dotfile.read_text(encoding="utf-8")
+
+    # If --web is set, bring up the UI server and bridge runner callbacks into it.
+    web_ctx = await _start_web_for_run(args, dot_source) if args.web else None
+
+    callbacks: dict[str, Any] = {
+        "on_node_start": tracker.on_node_start,
+        "on_node_end": tracker.on_node_end,
+        "on_edge": tracker.on_edge,
+        "on_retry": tracker.on_retry,
+        "on_agent_event": tracker.on_agent_event,
+    }
+    if web_ctx is not None:
+        callbacks = _compose_callbacks(callbacks, web_ctx["bridge"])
+
     runner = PipelineRunner(
         client=client,
         skill_registry=skill_registry,
         model_override=args.model,
         provider_override=args.provider,
-        on_node_start=tracker.on_node_start,
-        on_node_end=tracker.on_node_end,
-        on_edge=tracker.on_edge,
-        on_retry=tracker.on_retry,
-        on_agent_event=tracker.on_agent_event,
+        **callbacks,
     )
 
-    dot_source = dotfile.read_text(encoding="utf-8")
-    result = await runner.run(dot_source, run_dir=args.run_dir, resume=args.resume)
+    run_id = web_ctx["run_id"] if web_ctx else None
+    result = await runner.run(
+        dot_source, run_dir=args.run_dir, resume=args.resume, run_id=run_id,
+    )
     tracker.stop()
+
+    if web_ctx is not None:
+        hub = web_ctx["hub"]
+        # Persist the DOT inside the run dir so `attractor serve` can find it later.
+        try:
+            (Path(result.run_dir) / "pipeline.dot").write_text(dot_source, encoding="utf-8")
+        except Exception:
+            pass
+        hub.mark_finished(result.run_id)
 
     print()
     if result.success:
@@ -122,6 +158,14 @@ async def _cmd_run(args: argparse.Namespace) -> int:
 
     print(f"  nodes executed: {', '.join(result.nodes_executed)}")
     print(f"  run dir: {result.run_dir}")
+
+    if web_ctx is not None:
+        print(f"\n  web UI is still serving on http://{args.web_host}:{args.web_port}/")
+        print("  Press Ctrl-C to exit.")
+        try:
+            await web_ctx["serve_task"]
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            pass
 
     return 0 if result.success else 1
 
@@ -221,6 +265,104 @@ async def _cmd_chat(args: argparse.Namespace) -> int:
             print(f"\nerror: {e}\n", file=sys.stderr)
 
     session.close()
+    return 0
+
+
+# ── web ──────────────────────────────────────────────────────────────────
+
+def _require_web_extra() -> None:
+    try:
+        import fastapi  # noqa: F401
+        import uvicorn  # noqa: F401
+        import sse_starlette  # noqa: F401
+    except ImportError as e:
+        print(
+            f"Error: web UI requires the [web] extra. Install with:\n"
+            f"    pip install 'attractor[web]'\n"
+            f"(missing: {e.name})",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
+
+async def _start_web_for_run(args: argparse.Namespace, dot_source: str) -> dict[str, Any]:
+    """Spin up the UI server in the background for a run triggered by `run --web`."""
+    _require_web_extra()
+    import uvicorn
+
+    from .web.events import EventHub
+    from .web.runner_bridge import attach_to_runner
+    from .web.server import create_app
+
+    run_id = uuid.uuid4().hex[:12]
+    runs_dir = (args.run_dir.parent if args.run_dir else Path("runs")).resolve()
+    hub = EventHub()
+    hub.set_graph(run_id, dot_source)
+
+    app = create_app(runs_dir=runs_dir, hub=hub)
+    config = uvicorn.Config(
+        app, host=args.web_host, port=args.web_port, log_level="warning", lifespan="on",
+    )
+    server = uvicorn.Server(config)
+    serve_task = asyncio.create_task(server.serve())
+    # Give uvicorn a moment to bind before the run emits its first events.
+    for _ in range(40):
+        if server.started:
+            break
+        await asyncio.sleep(0.05)
+
+    print(f"  web UI: http://{args.web_host}:{args.web_port}/?run={run_id}")
+
+    bridge = attach_to_runner(hub, run_id)
+    return {
+        "hub": hub,
+        "bridge": bridge,
+        "run_id": run_id,
+        "server": server,
+        "serve_task": serve_task,
+    }
+
+
+def _compose_callbacks(
+    base: dict[str, Any], extra: dict[str, Any]
+) -> dict[str, Any]:
+    """Return callbacks that call both `base[k]` and `extra[k]`."""
+    out: dict[str, Any] = {}
+    for key in base:
+        b = base[key]
+        e = extra.get(key)
+        if b is None:
+            out[key] = e
+        elif e is None:
+            out[key] = b
+        else:
+            out[key] = _chain(b, e)
+    return out
+
+
+def _chain(f: Callable[..., Any], g: Callable[..., Any]) -> Callable[..., Any]:
+    # Preserve f's signature so runner.py's arity probe (inspect.signature)
+    # sees the intended shape rather than the generic *a/**kw of the wrapper.
+    @functools.wraps(f)
+    def _both(*a: Any, **kw: Any) -> None:
+        try:
+            f(*a, **kw)
+        finally:
+            g(*a, **kw)
+    return _both
+
+
+def _cmd_serve(args: argparse.Namespace) -> int:
+    _require_web_extra()
+    import uvicorn
+
+    from .web.events import EventHub
+    from .web.server import create_app
+
+    runs_dir = args.runs_dir.resolve()
+    app = create_app(runs_dir=runs_dir, hub=EventHub())
+    print(f"Attractor UI: http://{args.host}:{args.port}/  (serving {runs_dir})")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     return 0
 
 

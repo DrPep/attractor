@@ -27,7 +27,12 @@ attractor = "attractor.cli:main"
 openai = ["openai>=1.50"]
 anthropic = ["anthropic>=0.40"]
 gemini = ["google-genai>=1.0"]
-all = ["attractor[openai,anthropic,gemini]"]
+web = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "sse-starlette>=2.0",
+]
+all = ["attractor[openai,anthropic,gemini,web]"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",

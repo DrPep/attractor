@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Attractor</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/app.css" />
+  <script src="https://unpkg.com/d3@7"></script>
+  <script src="https://unpkg.com/@hpcc-js/wasm@2.18.0/dist/graphviz.umd.js"></script>
+  <script src="https://unpkg.com/d3-graphviz@5.3.0/build/d3-graphviz.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Attractor</h1>
+    <select id="run-picker" aria-label="Select run"></select>
+    <span id="run-status" class="pill"></span>
+  </header>
+
+  <main>
+    <section id="graph-pane">
+      <div id="graph"></div>
+      <div id="empty-msg">Select a run to visualize.</div>
+    </section>
+    <aside id="detail-pane">
+      <h2 id="detail-title">Node</h2>
+      <dl id="detail-meta"></dl>
+      <h3>Prompt</h3>
+      <pre id="detail-prompt" class="doc"></pre>
+      <h3>Response</h3>
+      <pre id="detail-response" class="doc"></pre>
+      <h3>Status</h3>
+      <pre id="detail-status" class="doc"></pre>
+      <h3>Recent events</h3>
+      <ol id="detail-events"></ol>
+    </aside>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

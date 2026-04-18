@@ -1,0 +1,150 @@
+:root {
+  --bg: #0f1115;
+  --panel: #161a22;
+  --border: #242a36;
+  --text: #d8dee9;
+  --muted: #8891a6;
+  --accent: #4fa3ff;
+  --ok: #4ecb71;
+  --fail: #ff5c5c;
+  --retry: #f2b84b;
+  --running: #4fa3ff;
+  --queued: #6b7280;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg); color: var(--text);
+}
+
+header {
+  display: flex; align-items: center; gap: 1rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+header h1 { margin: 0; font-size: 1rem; font-weight: 600; }
+header select {
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 0.3rem 0.5rem; font-size: 0.9rem;
+}
+
+.pill {
+  font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 999px;
+  background: var(--border); color: var(--muted);
+}
+.pill.live { background: var(--ok); color: #0b1a10; }
+.pill.done { background: var(--muted); color: #111; }
+
+main {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  height: calc(100% - 49px);
+}
+
+#graph-pane { position: relative; overflow: auto; background: var(--bg); }
+#graph { width: 100%; height: 100%; }
+#graph svg { width: 100%; height: 100%; background: var(--bg); }
+
+/* Re-theme graphviz-emitted SVG to match the app. */
+#graph .graph > polygon { fill: var(--bg) !important; stroke: none !important; }
+
+#graph .node > ellipse,
+#graph .node > polygon,
+#graph .node > path {
+  fill: var(--panel) !important;
+  stroke: var(--border);
+  stroke-width: 1.5px;
+}
+#graph .node text {
+  fill: var(--text) !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+}
+
+#graph .edge path {
+  stroke: var(--muted);
+  stroke-width: 1.2px;
+  fill: none;
+}
+#graph .edge polygon {
+  fill: var(--muted) !important;
+  stroke: var(--muted) !important;
+}
+#graph .edge text {
+  fill: var(--muted) !important;
+  font-size: 11px;
+}
+
+#empty-msg {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted); pointer-events: none;
+}
+
+#detail-pane {
+  border-left: 1px solid var(--border);
+  padding: 0.75rem 1rem; overflow: auto;
+  background: var(--panel);
+}
+#detail-pane h2 { margin: 0 0 0.5rem 0; font-size: 1rem; }
+#detail-pane h3 {
+  font-size: 0.75rem; text-transform: uppercase; color: var(--muted);
+  margin: 1rem 0 0.3rem 0; letter-spacing: 0.05em;
+}
+#detail-meta {
+  display: grid; grid-template-columns: auto 1fr; gap: 0.2rem 0.75rem;
+  font-size: 0.85rem; margin: 0;
+}
+#detail-meta dt { color: var(--muted); }
+#detail-meta dd { margin: 0; }
+
+.doc {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+  padding: 0.5rem; font-size: 0.8rem;
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 240px; overflow: auto; margin: 0;
+}
+
+#detail-events {
+  list-style: none; padding: 0; margin: 0;
+  font-size: 0.75rem; color: var(--muted);
+  max-height: 180px; overflow: auto;
+}
+#detail-events li { padding: 0.2rem 0; border-bottom: 1px dashed var(--border); }
+
+/* Graph node styling driven by data-status attribute */
+.node[data-status="running"] > ellipse,
+.node[data-status="running"] > polygon,
+.node[data-status="running"] > path {
+  stroke: var(--running) !important; stroke-width: 3px !important;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.node[data-status="success"] > ellipse,
+.node[data-status="success"] > polygon,
+.node[data-status="success"] > path { stroke: var(--ok) !important; stroke-width: 2.5px !important; }
+.node[data-status="fail"] > ellipse,
+.node[data-status="fail"] > polygon,
+.node[data-status="fail"] > path { stroke: var(--fail) !important; stroke-width: 2.5px !important; }
+.node[data-status="retrying"] > ellipse,
+.node[data-status="retrying"] > polygon,
+.node[data-status="retrying"] > path { stroke: var(--retry) !important; stroke-width: 2.5px !important; }
+.node[data-status="queued"] > ellipse,
+.node[data-status="queued"] > polygon,
+.node[data-status="queued"] > path { stroke: var(--queued) !important; }
+.node.selected > ellipse,
+.node.selected > polygon,
+.node.selected > path { filter: drop-shadow(0 0 4px var(--accent)); }
+.node { cursor: pointer; }
+
+.edge.traversed path { stroke: var(--accent) !important; stroke-width: 2px !important; }
+.edge.traversed polygon { fill: var(--accent) !important; stroke: var(--accent) !important; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}

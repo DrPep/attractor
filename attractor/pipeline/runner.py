@@ -78,9 +78,11 @@ class PipelineRunner:
         dot_source: str | Path,
         run_dir: Path | None = None,
         resume: bool = False,
+        run_id: str | None = None,
     ) -> RunResult:
         """Run a pipeline through all 5 phases."""
-        run_id = uuid.uuid4().hex[:12]
+        if run_id is None:
+            run_id = uuid.uuid4().hex[:12]
         if run_dir is None:
             run_dir = Path(f"runs/{run_id}")
 
