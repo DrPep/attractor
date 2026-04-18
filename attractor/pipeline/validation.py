@@ -134,14 +134,16 @@ def validate(
                         suggested_fix=f"Register skill '{skill_name}' or check for typos",
                     ))
 
-    # Warnings for goal_gate nodes without retry_target
+    # Warnings for goal_gate nodes without retry_target — mirrors the runtime
+    # fallback chain in goal_gate.py: node → graph.retry_target → graph.fallback_retry_target.
+    graph_fallback = graph.retry_target or graph.fallback_retry_target
     for node in graph.nodes.values():
-        if node.goal_gate and not node.retry_target:
+        if node.goal_gate and not node.retry_target and not graph_fallback:
             diagnostics.append(Diagnostic(
                 severity=Severity.WARNING,
                 message=f"Goal gate node '{node.id}' has no retry_target",
                 node_id=node.id,
-                suggested_fix="Add retry_target attribute",
+                suggested_fix="Add retry_target on the node, or graph-level retry_target/fallback_retry_target",
             ))
 
     return diagnostics
