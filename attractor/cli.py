@@ -32,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("dotfile", type=Path, help="Path to .dot pipeline file")
     run_p.add_argument("--run-dir", type=Path, default=None, help="Directory for run artifacts")
     run_p.add_argument("--resume", action="store_true", help="Resume from last checkpoint")
-    run_p.add_argument("--model", default=None, help="Override LLM model (e.g. claude-sonnet-4-6)")
+    run_p.add_argument("--model", default=None, help="Override LLM model (e.g. claude-opus-4-7)")
     run_p.add_argument("--provider", default=None, help="Override LLM provider (openai, anthropic, gemini)")
     run_p.add_argument("--skills-dir", type=Path, default=None, help="Directory to load skills from")
     run_p.add_argument("--web", action="store_true", help="Launch web UI on --web-port during the run")
@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # --- chat ---
     chat_p = sub.add_parser("chat", help="Start an interactive agent session")
-    chat_p.add_argument("--model", default=None, help="Override LLM model (e.g. claude-sonnet-4-6)")
+    chat_p.add_argument("--model", default=None, help="Override LLM model (e.g. claude-opus-4-7)")
     chat_p.add_argument("--provider", default=None, help="Override LLM provider (openai, anthropic, gemini)")
 
     args = parser.parse_args(argv)
@@ -236,7 +236,7 @@ async def _cmd_chat(args: argparse.Namespace) -> int:
     profile = None
     config = None
     if args.model or args.provider:
-        model = args.model or "claude-sonnet-4-6"
+        model = args.model or "claude-opus-4-7"
         provider = args.provider or "anthropic"
         profile = ProviderProfile(provider_name=provider, model=model)
         config = SessionConfig(model=model, provider=provider)

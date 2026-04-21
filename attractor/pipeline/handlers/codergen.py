@@ -81,7 +81,7 @@ class CodergenHandler(Handler):
 
         try:
             # Build provider profile: CLI override > node attribute > default
-            model = self._model_override or node.llm_model or "claude-sonnet-4-6"
+            model = self._model_override or node.llm_model or "claude-opus-4-7"
             provider = self._provider_override or node.llm_provider or None
 
             # Resolve skills and compose system prompt / tool set

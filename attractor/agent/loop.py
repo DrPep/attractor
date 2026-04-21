@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 class SessionConfig(BaseModel):
     max_turns: int = 50
     max_tokens: int | None = None
-    model: str = "claude-sonnet-4-6"
+    model: str = "claude-opus-4-7"
     provider: str | None = None
     temperature: float | None = None
     reasoning_effort: str | None = None

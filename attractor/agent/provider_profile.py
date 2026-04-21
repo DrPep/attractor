@@ -33,7 +33,7 @@ class ProviderProfile(BaseModel):
     @classmethod
     def for_anthropic(
         cls,
-        model: str = "claude-sonnet-4-6",
+        model: str = "claude-opus-4-7",
         tools: list[ToolDefinition] | None = None,
     ) -> ProviderProfile:
         return cls(

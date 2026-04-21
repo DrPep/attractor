@@ -22,11 +22,18 @@ class ModelInfo(BaseModel):
 MODELS: list[ModelInfo] = [
     # Anthropic
     ModelInfo(
+        id="claude-opus-4-7", provider="anthropic",
+        display_name="Claude Opus 4.7", context_window=200000,
+        max_output=32000, supports_tools=True, supports_vision=True,
+        supports_reasoning=True, input_cost_per_million=15.0,
+        output_cost_per_million=75.0, aliases=["opus"],
+    ),
+    ModelInfo(
         id="claude-opus-4-6", provider="anthropic",
         display_name="Claude Opus 4.6", context_window=200000,
         max_output=32000, supports_tools=True, supports_vision=True,
         supports_reasoning=True, input_cost_per_million=15.0,
-        output_cost_per_million=75.0, aliases=["opus"],
+        output_cost_per_million=75.0,
     ),
     ModelInfo(
         id="claude-sonnet-4-6", provider="anthropic",
