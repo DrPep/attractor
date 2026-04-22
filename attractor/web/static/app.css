@@ -117,6 +117,66 @@ main {
 }
 #detail-events li { padding: 0.2rem 0; border-bottom: 1px dashed var(--border); }
 
+.activity {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.78rem;
+  max-height: 360px;
+  overflow: auto;
+  padding: 0.25rem;
+}
+.activity-empty {
+  padding: 0.5rem; color: var(--muted); font-style: italic;
+}
+.activity-row {
+  padding: 0.35rem 0.5rem;
+  border-left: 2px solid var(--border);
+  margin: 0.25rem 0;
+  background: var(--panel);
+  border-radius: 2px;
+}
+.activity-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 0.68rem; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--muted);
+  margin-bottom: 0.2rem;
+}
+.activity-label { font-weight: 600; }
+.activity-time { font-variant-numeric: tabular-nums; opacity: 0.7; }
+.activity-body {
+  white-space: pre-wrap; word-break: break-word;
+  color: var(--text);
+}
+.activity-body pre {
+  margin: 0.3rem 0 0 0; padding: 0.35rem 0.5rem;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 3px; font-size: 0.72rem;
+  max-height: 160px; overflow: auto;
+}
+.activity-body code {
+  background: var(--bg); padding: 0 0.3rem; border-radius: 3px;
+  font-size: 0.78rem;
+}
+
+.activity-thinking { border-left-color: #a78bfa; }
+.activity-thinking .activity-body { color: #cbb6ff; font-style: italic; }
+.activity-text_delta { border-left-color: var(--accent); }
+.activity-tool_call_start { border-left-color: var(--retry); }
+.activity-tool_call_end { border-left-color: var(--ok); }
+.activity-turn_start, .activity-turn_end {
+  border-left-color: var(--muted);
+}
+.activity-turn_start .activity-body,
+.activity-turn_end .activity-body,
+.activity-llm_request .activity-body,
+.activity-llm_response .activity-body {
+  color: var(--muted); font-size: 0.72rem;
+}
+.activity-fail { border-left-color: var(--fail); }
+.activity-fail .activity-body { color: #ffb3b3; }
+.activity-warn { border-left-color: var(--retry); }
+
 /* Graph node styling driven by data-status attribute */
 .node[data-status="running"] > ellipse,
 .node[data-status="running"] > polygon,

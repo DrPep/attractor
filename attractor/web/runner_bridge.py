@@ -47,10 +47,14 @@ def attach_to_runner(hub: EventHub, run_id: str) -> dict[str, Any]:
         })
 
     def on_agent_event(event: AgentEvent) -> None:
-        hub.publish(run_id, "agent_event", {
+        data: dict[str, Any] = {
             "type": event.type.value,
             "payload": event.data,
-        })
+        }
+        node_id = event.data.get("node_id") if isinstance(event.data, dict) else None
+        if node_id:
+            data["node_id"] = node_id
+        hub.publish(run_id, "agent_event", data)
 
     return {
         "on_node_start": on_node_start,

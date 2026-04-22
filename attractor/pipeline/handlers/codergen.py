@@ -115,7 +115,17 @@ class CodergenHandler(Handler):
             )
 
             if self._on_agent_event:
-                session.on_all_events(self._on_agent_event)
+                forward = self._on_agent_event
+                node_id = node.id
+
+                def _forward_with_node(event: Any) -> Any:
+                    try:
+                        event.data.setdefault("node_id", node_id)
+                    except Exception:
+                        pass
+                    return forward(event)
+
+                session.on_all_events(_forward_with_node)
 
             result = await session.submit(prompt)
             response_text = result.final_response
