@@ -15,6 +15,22 @@ from .tools import create_default_registry
 logger = logging.getLogger(__name__)
 
 
+def _split_frontmatter(text: str) -> tuple[str | None, str]:
+    """Split SKILL.md-style frontmatter from body.
+
+    Returns (frontmatter_yaml, body). Frontmatter is None if the file does not
+    open with a `---` delimiter line, or if no closing `---` is found.
+    """
+    if not (text.startswith("---\n") or text.startswith("---\r\n")):
+        return None, text
+
+    lines = text.splitlines(keepends=True)
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            return "".join(lines[1:i]), "".join(lines[i + 1 :])
+    return None, text
+
+
 class Skill(BaseModel):
     """A reusable bundle of system prompt additions and tool set modifications."""
 
@@ -69,7 +85,14 @@ class SkillRegistry:
                 self._load_python(entry)
 
     def _load_yaml(self, path: Path) -> None:
-        """Load a skill from a YAML file."""
+        """Load a skill from a YAML file.
+
+        Supports two formats:
+        - Plain YAML mapping (`name: ...`, `system_prompt: ...`, etc.)
+        - SKILL.md-style frontmatter: a `---`-delimited YAML block at the top,
+          followed by a prose body that becomes `system_prompt`. The skill
+          `name` defaults to the file stem if not set in frontmatter.
+        """
         try:
             import yaml
         except ImportError:
@@ -81,10 +104,23 @@ class SkillRegistry:
             return
 
         try:
-            data = yaml.safe_load(path.read_text(encoding="utf-8"))
-            if not isinstance(data, dict):
-                logger.warning("Skill file %s does not contain a mapping", path)
-                return
+            text = path.read_text(encoding="utf-8")
+            frontmatter, body = _split_frontmatter(text)
+
+            if frontmatter is not None:
+                data = yaml.safe_load(frontmatter) or {}
+                if not isinstance(data, dict):
+                    logger.warning("Skill file %s frontmatter is not a mapping", path)
+                    return
+                data.setdefault("name", path.stem)
+                if body.strip():
+                    data["system_prompt"] = body.strip()
+            else:
+                data = yaml.safe_load(text)
+                if not isinstance(data, dict):
+                    logger.warning("Skill file %s does not contain a mapping", path)
+                    return
+
             skill = Skill(**data)
             self._skills[skill.name] = skill
             logger.debug("Loaded skill %r from %s", skill.name, path)

@@ -181,7 +181,8 @@ async def _cmd_run(args: argparse.Namespace) -> int:
     print(f"  run dir: {result.run_dir}")
 
     if web_ctx is not None:
-        print(f"\n  web UI is still serving on http://{args.web_host}:{args.web_port}/")
+        display_host = "127.0.0.1" if args.web_host == "0.0.0.0" else args.web_host
+        print(f"\n  web UI is still serving on http://{display_host}:{args.web_port}/")
         print("  Press Ctrl-C to exit.")
         try:
             await web_ctx["serve_task"]
@@ -365,7 +366,8 @@ async def _start_web_for_run(args: argparse.Namespace, dot_source: str) -> dict[
             break
         await asyncio.sleep(0.05)
 
-    print(f"  web UI: http://{args.web_host}:{args.web_port}/?run={run_id}")
+    display_host = "127.0.0.1" if args.web_host == "0.0.0.0" else args.web_host
+    print(f"  web UI: http://{display_host}:{args.web_port}/?run={run_id}")
 
     bridge = attach_to_runner(hub, run_id)
     return {

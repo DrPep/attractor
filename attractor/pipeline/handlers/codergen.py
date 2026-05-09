@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from pathlib import Path
 from typing import Any, Callable
+
+DEFAULT_CONTEXT_FILES = ("context.md",)
 
 from ...llm.client import Client
 from ...agent.session import Session
 from ...agent.skill import SkillRegistry
+from ...agent.environments.local import LocalEnvironment
 from ...agent.provider_profile import ProviderProfile, CODING_AGENT_SYSTEM_PROMPT
 from ...agent.loop import SessionConfig
 from ..context import PipelineContext
@@ -107,9 +111,14 @@ class CodergenHandler(Handler):
                 reasoning_effort=node.reasoning_effort or None,
             )
 
+            artifacts_dir = run_dir / "artifacts" / node.id
+            artifacts_dir.mkdir(parents=True, exist_ok=True)
+            _stage_context_files(artifacts_dir)
+
             session = Session(
                 client=self._client,
                 profile=profile,
+                environment=LocalEnvironment(working_dir=artifacts_dir),
                 config=config,
                 tool_registry=tool_registry,
             )
@@ -145,3 +154,20 @@ class CodergenHandler(Handler):
             if node.auto_status:
                 return Outcome(status="success", notes=f"Auto-status: {e}")
             return Outcome(status="fail", notes=str(e))
+
+
+def _stage_context_files(artifacts_dir: Path) -> None:
+    """Copy project-root context files into the agent's working dir so reads
+    of e.g. ./context.md resolve naturally despite agent cwd being artifacts."""
+    project_root = Path.cwd()
+    for name in DEFAULT_CONTEXT_FILES:
+        src = project_root / name
+        if not src.is_file():
+            continue
+        dst = artifacts_dir / name
+        if dst.exists():
+            continue
+        try:
+            shutil.copy2(src, dst)
+        except OSError as e:
+            logger.warning("Failed to stage %s into %s: %s", src, dst, e)

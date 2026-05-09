@@ -203,6 +203,50 @@ def test_load_yaml_skill(tmp_path):
     assert skill.tools_exclude == ["write_file", "edit_file"]
 
 
+def test_load_yaml_frontmatter_skill(tmp_path):
+    try:
+        import yaml  # noqa: F401
+    except ImportError:
+        pytest.skip("pyyaml not installed")
+
+    skill_file = tmp_path / "pipeline-author.yaml"
+    skill_file.write_text(
+        "---\n"
+        "description: Author a pipeline.\n"
+        "---\n"
+        "\n"
+        "You are the Pipeline Author. Write valid DOT.\n"
+    )
+
+    reg = SkillRegistry()
+    reg.load_dir(tmp_path)
+    skill = reg.get("pipeline-author")
+    assert skill is not None
+    assert skill.description == "Author a pipeline."
+    assert "Pipeline Author" in skill.system_prompt
+    assert skill.system_prompt.endswith("valid DOT.")
+
+
+def test_load_yaml_frontmatter_explicit_name_wins(tmp_path):
+    try:
+        import yaml  # noqa: F401
+    except ImportError:
+        pytest.skip("pyyaml not installed")
+
+    skill_file = tmp_path / "filename-stem.yaml"
+    skill_file.write_text(
+        "---\n"
+        "name: explicit-name\n"
+        "---\n"
+        "Body prompt.\n"
+    )
+
+    reg = SkillRegistry()
+    reg.load_dir(tmp_path)
+    assert reg.get("explicit-name") is not None
+    assert reg.get("filename-stem") is None
+
+
 # ── Python module loading ────────────────────────────────────────────────
 
 
