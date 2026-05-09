@@ -31,7 +31,14 @@ def main(argv: list[str] | None = None) -> int:
     run_p = sub.add_parser("run", help="Execute a pipeline from a DOT file")
     run_p.add_argument("dotfile", type=Path, help="Path to .dot pipeline file")
     run_p.add_argument("--run-dir", type=Path, default=None, help="Directory for run artifacts")
-    run_p.add_argument("--resume", action="store_true", help="Resume from last checkpoint")
+    resume_grp = run_p.add_mutually_exclusive_group()
+    resume_grp.add_argument(
+        "--resume", action="store_true", help="Resume from last checkpoint",
+    )
+    resume_grp.add_argument(
+        "--restart-from-success", action="store_true",
+        help="Pick a previously successful node from the checkpoint and restart from it",
+    )
     run_p.add_argument("--model", default=None, help="Override LLM model (e.g. claude-opus-4-7)")
     run_p.add_argument("--provider", default=None, help="Override LLM provider (openai, anthropic, gemini)")
     run_p.add_argument("--skills-dir", type=Path, default=None, help="Directory to load skills from")
@@ -134,8 +141,22 @@ async def _cmd_run(args: argparse.Namespace) -> int:
     )
 
     run_id = web_ctx["run_id"] if web_ctx else None
+
+    restart_from: str | None = None
+    if args.restart_from_success:
+        if args.run_dir is None:
+            print(
+                "Error: --restart-from-success requires --run-dir pointing at the prior run.",
+                file=sys.stderr,
+            )
+            return 1
+        restart_from = _pick_restart_node(args.run_dir)
+        if restart_from is None:
+            return 1
+
     result = await runner.run(
         dot_source, run_dir=args.run_dir, resume=args.resume, run_id=run_id,
+        restart_from=restart_from,
     )
     tracker.stop()
 
@@ -168,6 +189,39 @@ async def _cmd_run(args: argparse.Namespace) -> int:
             pass
 
     return 0 if result.success else 1
+
+
+def _pick_restart_node(run_dir: Path) -> str | None:
+    """Prompt the user to pick a successful node from the checkpoint. None aborts."""
+    from .pipeline.checkpoint import load_checkpoint
+
+    checkpoint = load_checkpoint(run_dir)
+    if checkpoint is None:
+        print(f"Error: no checkpoint found in {run_dir}", file=sys.stderr)
+        return None
+    nodes = list(checkpoint.completed_nodes)
+    if not nodes:
+        print(f"Error: checkpoint in {run_dir} has no completed nodes", file=sys.stderr)
+        return None
+
+    print("Successful nodes (most recent last):")
+    for i, nid in enumerate(nodes, 1):
+        print(f"  [{i}] {nid}")
+    while True:
+        try:
+            raw = input("Restart from which node? (number or node id, 'q' to abort): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+        if raw.lower() in ("q", "quit", "exit"):
+            return None
+        if raw.isdigit():
+            idx = int(raw)
+            if 1 <= idx <= len(nodes):
+                return nodes[idx - 1]
+        elif raw in nodes:
+            return raw
+        print(f"  invalid choice: {raw!r}")
 
 
 # ── validate ─────────────────────────────────────────────────────────────

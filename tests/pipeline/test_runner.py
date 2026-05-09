@@ -123,6 +123,64 @@ async def test_status_files_created(tmp_run_dir):
 
 
 @pytest.mark.asyncio
+async def test_restart_from_success(tmp_run_dir):
+    dot = '''
+    digraph test {
+        start [shape=Mdiamond];
+        step1 [shape=parallelogram, command="echo one"];
+        step2 [shape=parallelogram, command="echo two"];
+        finish [shape=Msquare];
+        start -> step1 -> step2 -> finish;
+    }
+    '''
+    runner = PipelineRunner()
+    first = await runner.run(dot, run_dir=tmp_run_dir)
+    assert first.success
+    assert first.nodes_executed == ["start", "step1", "step2", "finish"]
+
+    visited: list[str] = []
+    runner2 = PipelineRunner(on_node_start=lambda n: visited.append(n))
+    second = await runner2.run(dot, run_dir=tmp_run_dir, restart_from="step2")
+    assert second.success
+    # step2 and downstream are re-executed; start/step1 are not.
+    assert visited == ["step2", "finish"]
+    assert second.nodes_executed == ["step2", "finish"]
+
+
+@pytest.mark.asyncio
+async def test_restart_from_unknown_node_errors(tmp_run_dir):
+    dot = '''
+    digraph test {
+        start [shape=Mdiamond];
+        finish [shape=Msquare];
+        start -> finish;
+    }
+    '''
+    runner = PipelineRunner()
+    await runner.run(dot, run_dir=tmp_run_dir)
+
+    runner2 = PipelineRunner()
+    result = await runner2.run(dot, run_dir=tmp_run_dir, restart_from="nonexistent")
+    assert not result.success
+    assert any("not in completed nodes" in e for e in result.errors)
+
+
+@pytest.mark.asyncio
+async def test_restart_from_without_checkpoint_errors(tmp_run_dir):
+    dot = '''
+    digraph test {
+        start [shape=Mdiamond];
+        finish [shape=Msquare];
+        start -> finish;
+    }
+    '''
+    runner = PipelineRunner()
+    result = await runner.run(dot, run_dir=tmp_run_dir, restart_from="start")
+    assert not result.success
+    assert any("no checkpoint found" in e for e in result.errors)
+
+
+@pytest.mark.asyncio
 async def test_node_callbacks(tmp_run_dir):
     started = []
     ended = []

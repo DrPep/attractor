@@ -79,6 +79,7 @@ class PipelineRunner:
         run_dir: Path | None = None,
         resume: bool = False,
         run_id: str | None = None,
+        restart_from: str | None = None,
     ) -> RunResult:
         """Run a pipeline through all 5 phases."""
         if run_id is None:
@@ -121,19 +122,41 @@ class PipelineRunner:
             node_visit_counts: dict[str, int] = {}
             start_node_id = ""
 
-            if resume:
+            if restart_from or resume:
                 checkpoint = load_checkpoint(run_dir)
                 if checkpoint:
-                    logger.info("Resuming from checkpoint at node %s", checkpoint.current_node)
-                    context.restore(checkpoint.context_snapshot)
-                    completed_nodes = list(checkpoint.completed_nodes)
-                    node_retries = dict(checkpoint.node_retries)
-                    start_node_id = checkpoint.current_node
+                    if restart_from:
+                        if restart_from not in checkpoint.completed_nodes:
+                            raise PipelineError(
+                                f"Cannot restart from '{restart_from}': not in completed nodes "
+                                f"({checkpoint.completed_nodes})"
+                            )
+                        logger.info("Restarting from successful node %s", restart_from)
+                        context.restore(checkpoint.context_snapshot)
+                        # Keep only nodes that completed strictly before the chosen one;
+                        # the chosen node and everything downstream will be re-executed.
+                        cut = checkpoint.completed_nodes.index(restart_from)
+                        completed_nodes = list(checkpoint.completed_nodes[:cut])
+                        kept = set(completed_nodes)
+                        node_retries = {
+                            k: v for k, v in checkpoint.node_retries.items() if k in kept
+                        }
+                        start_node_id = restart_from
+                    else:
+                        logger.info("Resuming from checkpoint at node %s", checkpoint.current_node)
+                        context.restore(checkpoint.context_snapshot)
+                        completed_nodes = list(checkpoint.completed_nodes)
+                        node_retries = dict(checkpoint.node_retries)
+                        start_node_id = checkpoint.current_node
                     # Rebuild outcomes from status files
                     for nid in completed_nodes:
                         status = read_status(nid, run_dir)
                         if status:
                             node_outcomes[nid] = status.outcome
+                elif restart_from:
+                    raise PipelineError(
+                        f"Cannot restart from '{restart_from}': no checkpoint found in {run_dir}"
+                    )
 
             if not start_node_id:
                 start = graph.start_node
