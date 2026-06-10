@@ -152,6 +152,10 @@ type Graph struct {
 	RetryTarget         string            `json:"retry_target"`
 	FallbackRetryTarget string            `json:"fallback_retry_target"`
 	Attrs               map[string]string `json:"attrs"`
+	// Order records node ids in declaration order, so iteration that is
+	// behaviorally significant (e.g. goal-gate retry_target selection) matches
+	// the Python runner's dict-insertion order rather than alphabetical order.
+	Order []string `json:"-"`
 }
 
 // NewGraph returns an initialized empty graph.
@@ -206,6 +210,26 @@ func (g *Graph) ExitNodes() []*Node {
 	for _, id := range g.sortedNodeIDs() {
 		if g.Nodes[id].Type == NodeExit {
 			out = append(out, g.Nodes[id])
+		}
+	}
+	return out
+}
+
+// OrderedNodeIDs returns node ids in declaration order, appending any nodes not
+// present in Order (defensive) in sorted order.
+func (g *Graph) OrderedNodeIDs() []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(g.Nodes))
+	for _, id := range g.Order {
+		if g.Nodes[id] != nil && !seen[id] {
+			out = append(out, id)
+			seen[id] = true
+		}
+	}
+	for _, id := range g.sortedNodeIDs() {
+		if !seen[id] {
+			out = append(out, id)
+			seen[id] = true
 		}
 	}
 	return out

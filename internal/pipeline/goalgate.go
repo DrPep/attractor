@@ -13,7 +13,7 @@ type GoalGateResult struct {
 func CheckGoalGates(g *Graph, completedOutcomes map[string]string) GoalGateResult {
 	acceptable := map[string]bool{"success": true, "partial_success": true}
 	var unsatisfied []string
-	for _, id := range g.sortedNodeIDs() {
+	for _, id := range g.OrderedNodeIDs() {
 		node := g.Nodes[id]
 		if !node.GoalGate() {
 			continue

@@ -52,7 +52,7 @@ func (a *AnthropicAdapter) extractSystem(msgs []llm.Message) ([]anthropic.TextBl
 		joined += s
 	}
 	block := anthropic.TextBlockParam{Text: joined}
-	block.CacheControl = anthropic.CacheControlEphemeralParam{}
+	block.CacheControl = anthropic.NewCacheControlEphemeralParam()
 	return []anthropic.TextBlockParam{block}, remaining
 }
 
@@ -155,6 +155,7 @@ func (a *AnthropicAdapter) buildParams(req llm.Request) (anthropic.MessageNewPar
 	if len(sys) > 0 {
 		params.System = sys
 	}
+	injectUserCacheControl(messages)
 	if tools := a.translateTools(req.Tools); tools != nil {
 		params.Tools = tools
 	}
@@ -165,6 +166,32 @@ func (a *AnthropicAdapter) buildParams(req llm.Request) (anthropic.MessageNewPar
 		params.StopSequences = req.StopSequences
 	}
 	return params, nil
+}
+
+// injectUserCacheControl places an ephemeral cache breakpoint on the last block
+// of the most recent user message — the common reusable prefix for agentic
+// workloads — mirroring the Python adapter's _inject_cache_control.
+func injectUserCacheControl(messages []anthropic.MessageParam) {
+	cc := anthropic.NewCacheControlEphemeralParam()
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != anthropic.MessageParamRoleUser {
+			continue
+		}
+		content := messages[i].Content
+		if len(content) == 0 {
+			return
+		}
+		block := &content[len(content)-1]
+		switch {
+		case block.OfText != nil:
+			block.OfText.CacheControl = cc
+		case block.OfToolResult != nil:
+			block.OfToolResult.CacheControl = cc
+		case block.OfImage != nil:
+			block.OfImage.CacheControl = cc
+		}
+		return
+	}
 }
 
 // Complete performs a non-streaming completion.

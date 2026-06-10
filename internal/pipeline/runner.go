@@ -179,7 +179,9 @@ func (r *PipelineRunner) run(ctx context.Context, dotSource string, params RunPa
 
 	// Phase 4: EXECUTE
 	currentNodeID := startNodeID
-	for iteration := 0; iteration < maxRunnerIterations; iteration++ {
+	iteration := 0
+	for iteration < maxRunnerIterations {
+		iteration++
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -267,10 +269,10 @@ func (r *PipelineRunner) run(ctx context.Context, dotSource string, params RunPa
 			r.opts.OnEdge(node.ID, nextEdge.Target, nextEdge.Label)
 		}
 		currentNodeID = nextEdge.Target
+	}
 
-		if iteration == maxRunnerIterations-1 {
-			result.Errors = append(result.Errors, "Maximum iteration limit reached")
-		}
+	if iteration >= maxRunnerIterations {
+		result.Errors = append(result.Errors, "Maximum iteration limit reached")
 	}
 
 	// Phase 5: FINALIZE
@@ -299,10 +301,17 @@ func (r *PipelineRunner) executeWithRetry(ctx context.Context, node *Node, pctx 
 			return Outcome{Status: "fail", Notes: err.Error()}
 		}
 
-		if (outcome.Status == "retry" || outcome.Status == "fail") && attempt < maxRetries {
+		if outcome.Status == "retry" && attempt < maxRetries {
 			retries++
 			nodeRetries[node.ID] = retries
 			pctx.Set("internal.retry_count."+node.ID, retries)
+			r.backoff(ctx, node.ID, attempt, maxRetries)
+			continue
+		}
+
+		if outcome.Status == "fail" && attempt < maxRetries {
+			retries++
+			nodeRetries[node.ID] = retries
 			r.backoff(ctx, node.ID, attempt, maxRetries)
 			continue
 		}

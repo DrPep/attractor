@@ -78,6 +78,7 @@ func ParseDOT(source string) (*Graph, error) {
 			continue
 		}
 		g.Nodes[name] = parseNode(name, dn.attrs)
+		g.Order = append(g.Order, name)
 	}
 
 	// Edges.
@@ -107,6 +108,7 @@ func ParseDOT(source string) (*Graph, error) {
 		for _, id := range []string{e.Source, e.Target} {
 			if g.Nodes[id] == nil {
 				g.Nodes[id] = &Node{ID: id, Type: NodeCodergen, Label: id, Attrs: map[string]string{}}
+				g.Order = append(g.Order, id)
 			}
 		}
 	}

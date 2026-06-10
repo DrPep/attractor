@@ -27,8 +27,16 @@ func (t *ReadFileTool) ParametersSchema() map[string]any {
 }
 func (t *ReadFileTool) Execute(ctx context.Context, args map[string]any, env ExecutionEnvironment) (ToolResult, error) {
 	filePath := argString(args, "file_path")
+	// Mirror Python's `(offset or 1)` / `(limit or 2000)`: an explicit 0 falls
+	// back to the default rather than reading zero lines.
 	offset := argInt(args, "offset", 1)
+	if offset == 0 {
+		offset = 1
+	}
 	limit := argInt(args, "limit", 2000)
+	if limit == 0 {
+		limit = 2000
+	}
 
 	content, err := env.ReadFile(filePath)
 	if err != nil {

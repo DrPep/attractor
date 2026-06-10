@@ -53,6 +53,8 @@ func attrBool(raw string, ok bool) bool {
 	if !ok {
 		return false
 	}
+	// Mirror Python's bool(parse_attr_value(x)): any non-empty string that is
+	// not a recognized bool/number is truthy (e.g. goal_gate="yes").
 	switch v := parseAttrValue(raw).(type) {
 	case bool:
 		return v
@@ -60,6 +62,8 @@ func attrBool(raw string, ok bool) bool {
 		return v != 0
 	case float64:
 		return v != 0
+	case string:
+		return v != ""
 	default:
 		return false
 	}
