@@ -15,7 +15,13 @@ set -euo pipefail
 
 # Resolve the script's real location (may be invoked via symlink on PATH).
 # Script lives at $REPO/bin/attractor.
-SCRIPT_DIR="$(python3 -c 'import os, sys; print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")"
+SOURCE="$0"
+while [ -L "$SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 REPO="$(dirname "$SCRIPT_DIR")"
 IMAGE="attractor-sandbox:latest"
 
@@ -33,35 +39,6 @@ if [ -t 0 ] && [ -t 1 ]; then
     TTY_FLAGS+=("-t")
 fi
 
-# Live-mount the source if running from the repo, so edits don't need a rebuild.
-SOURCE_MOUNT=()
-if [ -d "$REPO/attractor" ]; then
-    SOURCE_MOUNT=(-v "$REPO/attractor:/opt/attractor/attractor:ro")
-fi
-
-# If `--web` is in the args, publish the UI port to the host and force the
-# in-container bind to 0.0.0.0 (default 127.0.0.1 isn't reachable through -p).
-WEB_PUBLISH=()
-ARGS=("$@")
-WANT_WEB=0
-WEB_PORT=8765
-USER_SET_WEB_HOST=0
-for ((i=0; i<${#ARGS[@]}; i++)); do
-    a="${ARGS[$i]}"
-    case "$a" in
-        --web) WANT_WEB=1 ;;
-        --web-port) WEB_PORT="${ARGS[$((i+1))]:-8765}" ;;
-        --web-port=*) WEB_PORT="${a#--web-port=}" ;;
-        --web-host|--web-host=*) USER_SET_WEB_HOST=1 ;;
-    esac
-done
-if [ "$WANT_WEB" = "1" ]; then
-    WEB_PUBLISH=(-p "127.0.0.1:${WEB_PORT}:${WEB_PORT}")
-    if [ "$USER_SET_WEB_HOST" = "0" ]; then
-        ARGS+=("--web-host" "0.0.0.0")
-    fi
-fi
-
 exec docker run --rm "${TTY_FLAGS[@]}" \
     --read-only \
     --cap-drop=ALL \
@@ -71,9 +48,7 @@ exec docker run --rm "${TTY_FLAGS[@]}" \
     -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
     -e OPENAI_API_KEY="${OPENAI_API_KEY:-}" \
     -e GEMINI_API_KEY="${GEMINI_API_KEY:-}" \
-    "${WEB_PUBLISH[@]}" \
     -v "$PWD:/cwd:ro" \
     -v "$PWD/runs:/cwd/runs:rw" \
-    "${SOURCE_MOUNT[@]}" \
     -w /cwd \
-    "$IMAGE" "${ARGS[@]}"
+    "$IMAGE" "$@"

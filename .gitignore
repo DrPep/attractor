@@ -32,3 +32,8 @@ htmlcov/
 # OS
 .DS_Store
 runs/
+
+# Go
+/attractor-bin
+*.test
+*.out

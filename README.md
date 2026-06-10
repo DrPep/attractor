@@ -1,6 +1,8 @@
 # Attractor
 
-A DOT-based directed graph pipeline runner for multi-stage AI workflows.
+A DOT-based directed graph pipeline runner for multi-stage AI workflows, with a
+built-in tool-using coding agent. Written in Go — it builds to a single static
+binary.
 
 ## Table of Contents
 
@@ -12,53 +14,63 @@ A DOT-based directed graph pipeline runner for multi-stage AI workflows.
 
 ## Quick Start
 
-### Setup
-
 ```bash
-./setup.sh
-source .venv/bin/activate
-```
+# Build the binary
+go build -o attractor ./cmd/attractor
 
-### Quick Start
-
-```bash
 # Validate a DOT pipeline file
-python -m attractor.cli validate examples/hello.dot
+./attractor validate examples/hello.dot
 
-# Run a pipeline
-python -m attractor.cli run examples/hello.dot
+# Run a pipeline (needs a provider key in the environment)
+ANTHROPIC_API_KEY=... ./attractor run examples/hello.dot
 
 # Run with skills
-python -m attractor.cli run pipeline.dot --skills-dir ./skills
+./attractor run pipeline.dot --skills-dir ./skills
 
 # Interactive coding agent
-python -m attractor.cli chat
+./attractor chat
 ```
 
 ## Installation
 
 ### System Requirements
-- Python 3.9 or higher (3.11 recommended)
-- macOS, Linux, or Windows with bash/zsh
+- Go 1.26 or higher
+- macOS, Linux, or Windows
+- `ripgrep` (optional; the agent's `grep` tool falls back to `grep`)
 
 ### From Source
 
-1. **Clone and setup virtual environment:**
-   ```bash
-   git clone <repo>
-   cd <repo>
-   ./setup.sh
-   source .venv/bin/activate
-   ```
+```bash
+git clone <repo>
+cd attractor
+go build -o attractor ./cmd/attractor
+```
 
-2. **Install dependencies:**
-   ```bash
-   pip install -e ".[dev,all]"
-   ```
+Set whichever provider keys you have — Attractor registers only the providers it
+finds credentials for:
+
+```bash
+export ANTHROPIC_API_KEY=...   # Claude
+export OPENAI_API_KEY=...      # GPT
+export GEMINI_API_KEY=...      # Gemini
+```
+
+### Sandboxed run (Docker)
+
+`bin/attractor` runs the CLI inside a hardened container (read-only root, dropped
+capabilities, your cwd mounted read-only, `./runs/` mounted read-write). On macOS
+it reads `ANTHROPIC_API_KEY` from the login keychain:
+
+```bash
+bin/attractor run examples/hello.dot
+```
 
 ## Attractor
 
-Attractor is a workflow orchestration engine for building multi-stage AI pipelines using Graphviz DOT notation. It supports multiple LLM providers (Anthropic, OpenAI, Google Gemini) and enables complex retry loops, feedback injection, and conditional routing.
+Attractor is a workflow orchestration engine for building multi-stage AI
+pipelines using Graphviz DOT notation. It supports multiple LLM providers
+(Anthropic, OpenAI, Google Gemini) and enables retry loops, feedback injection,
+and conditional routing.
 
 ### Features
 
@@ -71,11 +83,11 @@ Attractor is a workflow orchestration engine for building multi-stage AI pipelin
 - Anthropic Claude (via `ANTHROPIC_API_KEY`)
 - OpenAI (via `OPENAI_API_KEY`)
 - Google Gemini (via `GEMINI_API_KEY`)
-- Easy provider switching per node
+- Per-node provider/model override
 
 **Agentic Capabilities**
 - Tool-using coding agent with file I/O, shell execution, and glob/grep
-- Streaming support
+- Loop detection and steering injection
 - Custom tool registration
 
 **Advanced Workflows**
@@ -84,19 +96,19 @@ Attractor is a workflow orchestration engine for building multi-stage AI pipelin
 - Node-level iteration caps (`max_iterations`)
 - Goal gates for success validation
 - Edge conditions with variable substitution
-- Checkpointing and recovery
+- Checkpointing and recovery (`--resume`, `--restart-from-success`)
 
 **Skills System**
-- Composable system prompt and tool modifications
-- YAML and Python skill definitions
-- Multi-skill composition on single nodes
+- Composable system-prompt and tool-set modifications
+- YAML skill definitions (with optional `---` frontmatter)
+- Multi-skill composition on a single node
 
 ### Example Pipeline
 
 ```dot
 digraph sdlc {
     goal="Build a REST API with tests";
-    
+
     start [shape=Mdiamond];
     code  [shape=box, prompt="Implement the goal", skills="coding"];
     test  [shape=box, prompt="Run tests", skills="testing"];
@@ -121,78 +133,70 @@ digraph sdlc {
 | `diamond` | conditional | Branch based on condition |
 | `hexagon` | wait.human | Pause for human input |
 | `component` | parallel | Run multiple paths in parallel |
-| `parallelogram` | tool | Execute a tool directly |
+| `parallelogram` | tool | Execute a shell command directly |
 | `house` | manager_loop | Hierarchical loop management |
 
 ## Architecture
 
-### Three Core Subsystems
+The Go module is `github.com/nigelpepper/attractor`. Source lives under
+`internal/` (libraries) and `cmd/attractor` (the CLI).
 
-**`attractor/pipeline/`** – Execution Engine
-- `parser.py`: Converts DOT source to `Graph` model via pydot
-- `runner.py`: 5-phase lifecycle (PARSE → VALIDATE → INITIALIZE → EXECUTE → FINALIZE)
-- `handlers/`: Node type handlers registered in `HandlerRegistry`
-- `edge_selector.py`: Intelligent edge traversal with label and condition matching
-- `checkpoint.py`, `retry.py`, `goal_gate.py`, `stylesheet.py`: Specialized features
+**`internal/pipeline/`** – Execution engine
+- `parser.go`: DOT → `Graph` via gographviz, with strict pre-validation
+- `runner.go`: 5-phase lifecycle (PARSE → VALIDATE → INITIALIZE → EXECUTE → FINALIZE)
+- `handler_*.go`: node-type handlers registered in `HandlerRegistry`
+- `edgeselector.go`: edge traversal with label and condition matching
+- `checkpoint.go`, `retry.go`, `goalgate.go`, `stylesheet.go`: specialized features
 
-**`attractor/llm/`** – LLM Abstraction
-- `Client`: Auto-discovers LLM providers from environment variables
-- `adapters/`: Provider implementations (Anthropic, OpenAI, Gemini)
-- `catalog.py`: Model → provider mapping
-- Middleware chain for extensibility
+**`internal/llm/`** – LLM abstraction
+- `Client`: routes requests to registered providers via a middleware chain
+- `adapters/`: provider implementations on the official Go SDKs (Anthropic, OpenAI, Gemini)
+- `adapters.FromEnv`: auto-discovers providers from environment variables
+- `catalog.go`: model → provider mapping
 
-**`attractor/agent/`** – Coding Agent
-- `Session`: State and history management
+**`internal/agent/`** – Coding agent
+- `Session`: state and history management
 - `AgentLoop`: LLM → tool → repeat cycle
-- `agent/tools/`: File I/O, shell, glob, grep, and custom tools
-- Loop detection and correction injection
+- `tools/`: file I/O, shell, glob, grep, plus the execution-environment abstraction
+- Loop detection and steering injection
 
 ## Development
-
-### Setup
-
-```bash
-./setup.sh
-source .venv/bin/activate
-pip install -e ".[dev,all]"
-```
 
 ### Commands
 
 ```bash
-# Run tests
-pytest                              # All tests
-pytest tests/pipeline/              # One subsystem
-pytest tests/pipeline/test_parser.py::test_name  # Single test
+# Build
+go build -o attractor ./cmd/attractor
 
-# Lint & format
-ruff check .
-ruff format --check .
-ruff format .  # Apply fixes
+# Tests
+go test ./...                                  # all tests
+go test ./internal/pipeline/                   # one subsystem
+go test ./internal/pipeline/ -run TestParseCLI # single test
 
-# Type checking
-mypy attractor
+# Vet & format
+go vet ./...
+gofmt -l .        # list files needing formatting
+gofmt -w .        # apply formatting
 
-# Run pipeline
-python -m attractor.cli run examples/hello.dot
+# Run a pipeline
+./attractor run examples/hello.dot
 
 # Interactive agent
-python -m attractor.cli chat
+./attractor chat
 ```
 
 ### Code Conventions
 
-- **Python**: 3.9+ with annotations (`from __future__ import annotations`)
-- **Data models**: Pydantic v2
-- **Async**: Async-first (tests use `pytest-asyncio`)
-- **Line length**: 100 characters (ruff)
-- **Node IDs**: Bare identifiers only (`[A-Za-z_][A-Za-z0-9_]*`)
-- **Comments**: Only for WHY, not WHAT
+- **Go** 1.26; standard `gofmt` formatting
+- **Errors**: typed error hierarchy in `internal/aerr`
+- **Concurrency**: synchronous flow with `context.Context`; goroutines for parallel nodes
+- **Node IDs**: bare identifiers only (`[A-Za-z_][A-Za-z0-9_]*`)
+- **Comments**: only for WHY, not WHAT
 
 ### DOT Spec Constraints
 
 - One `digraph` per file (no `graph`, `strict`, or multiple graphs)
-- Bare identifiers for node IDs, use `label` for display names
+- Bare identifiers for node IDs; use `label` for display names
 - Commas between attributes in `[...]`
 - Directed edges only (`->`, no `--`)
 - Comments: `//` line, `/* block */`
@@ -209,7 +213,8 @@ check -> code  [label="retry", condition="outcome=fail"];
 check -> done  [condition="outcome=success"];
 ```
 
-When a node is re-entered, prior feedback is automatically appended:
+When a node is re-entered, prior downstream feedback is automatically appended:
+
 ```
 --- Feedback from previous iteration ---
 Error: Test failed – IndexError on line 42
@@ -220,8 +225,3 @@ Use `max_iterations=<n>` to cap retries per node.
 ## License
 
 Apache License 2.0 – See [LICENSE](LICENSE) for details.
-
-## Support
-
-- **Attractor issues**: Review pipeline DOT syntax and provider configuration
-- **Development help**: Run `pytest -v` for detailed test output
