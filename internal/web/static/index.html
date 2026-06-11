@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <title>Attractor</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/app.css" />
+  <script src="https://unpkg.com/d3@7"></script>
+  <script src="https://unpkg.com/@hpcc-js/wasm@2.18.0/dist/graphviz.umd.js"></script>
+  <script src="https://unpkg.com/d3-graphviz@5.3.0/build/d3-graphviz.js"></script>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="logo">◆</span>
+      <h1>Attractor</h1>
+    </div>
+    <div class="controls">
+      <label class="run-select">
+        <span>Run</span>
+        <select id="run-picker" aria-label="Select run"></select>
+      </label>
+      <span id="run-status" class="pill"></span>
+      <button id="theme-toggle" class="ghost" title="Toggle theme" aria-label="Toggle theme">◐</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="graph-pane">
+      <div id="graph"></div>
+      <div id="empty-msg">Select a run to visualize.</div>
+      <div id="legend" class="legend" hidden>
+        <span class="legend-item"><i class="dot s-running"></i>running</span>
+        <span class="legend-item"><i class="dot s-success"></i>success</span>
+        <span class="legend-item"><i class="dot s-partial_success"></i>partial</span>
+        <span class="legend-item"><i class="dot s-fail"></i>fail</span>
+        <span class="legend-item"><i class="dot s-retrying"></i>retrying</span>
+        <span class="legend-item"><i class="dot s-queued"></i>queued</span>
+      </div>
+    </section>
+    <aside id="detail-pane" class="empty">
+      <header class="detail-head">
+        <h2 id="detail-title">Node</h2>
+        <span id="detail-badge" class="pill"></span>
+      </header>
+      <p id="detail-hint" class="hint">Click a node in the graph to inspect it.</p>
+      <div id="detail-body" hidden>
+        <dl id="detail-meta" class="meta"></dl>
+        <details open>
+          <summary>Prompt</summary>
+          <pre id="detail-prompt" class="doc"></pre>
+        </details>
+        <details open>
+          <summary>Response</summary>
+          <pre id="detail-response" class="doc"></pre>
+        </details>
+        <details>
+          <summary>Status</summary>
+          <pre id="detail-status" class="doc"></pre>
+        </details>
+        <details open>
+          <summary>Recent events</summary>
+          <ol id="detail-events" class="events"></ol>
+        </details>
+      </div>
+    </aside>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -37,3 +37,4 @@ runs/
 /attractor-bin
 *.test
 *.out
+attractor

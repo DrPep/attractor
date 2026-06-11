@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -121,6 +122,8 @@ func (r *PipelineRunner) run(ctx context.Context, dotSource string, params RunPa
 	if err := EnsureRunDir(runDir); err != nil {
 		return err
 	}
+	// Persist the source DOT so the web UI and resumes can recover the graph.
+	_ = os.WriteFile(filepath.Join(runDir, "pipeline.dot"), []byte(dotSource), 0o644)
 	pctx := NewPipelineContext(nil)
 	pctx.Set("graph.goal", graph.Goal)
 	pctx.Set("run_id", runID)
@@ -340,6 +343,10 @@ func newRunID() string {
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
+
+// NewRunID generates a fresh random run identifier, matching the IDs the runner
+// assigns when none is supplied. Useful for callers that need the ID up front.
+func NewRunID() string { return newRunID() }
 
 func indexOf(s []string, v string) int {
 	for i, x := range s {

@@ -183,7 +183,21 @@ gofmt -w .        # apply formatting
 
 # Interactive agent
 ./attractor chat
+
+# Watch a pipeline run live in the browser
+./attractor run examples/hello.dot --web          # opens http://127.0.0.1:8765
+# Browse prior runs without executing anything
+./attractor serve --runs-dir runs --port 8765
 ```
+
+### Web UI
+
+`--web` on `run` (or the standalone `serve` command) launches a live pipeline
+visualizer at `http://127.0.0.1:8765`. It renders the DOT graph with
+d3-graphviz, colours nodes by status as events stream in over Server-Sent
+Events, and shows each node's prompt/response/status in a side panel. `serve`
+works over the `runs/` directory alone, so finished runs stay inspectable.
+The frontend assets are embedded into the binary (`go:embed`); no build step.
 
 ### Code Conventions
 

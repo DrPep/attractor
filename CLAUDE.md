@@ -26,6 +26,10 @@ ANTHROPIC_API_KEY=... ./attractor run examples/hello.dot
 # Interactive agent chat
 ./attractor chat
 
+# Live web UI during a run, or browse prior runs
+./attractor run examples/hello.dot --web   # --web-port / --web-host to override
+./attractor serve --runs-dir runs --port 8765
+
 # Tests
 go test ./...                                   # all tests
 go test ./internal/pipeline/                    # one subsystem
@@ -39,13 +43,15 @@ gofmt -w .   # apply formatting
 
 ## Architecture
 
-Three major subsystems under `internal/`, plus shared error types in `internal/aerr`:
+Four subsystems under `internal/`, plus shared error types in `internal/aerr`:
 
 **`pipeline/`** - DOT graph execution engine. `parser.go` converts DOT source into a `Graph` model (`graph.go`) using `gographviz` for the AST, with a strict `preValidate` pass enforcing the spec before parsing. Because `gographviz.Read` rejects non-standard attribute names, the parser uses `gographviz.Parse` + `Analyse` through a permissive `collector` that preserves the custom DSL attributes (`goal`, `prompt`, `condition`, ...). `runner.go` orchestrates a 5-phase lifecycle: PARSE → VALIDATE → INITIALIZE → EXECUTE → FINALIZE. Each node type has a handler (`handler_*.go`, `handlers_simple.go`) registered via `HandlerRegistry`. Edge traversal uses `edgeselector.go` with label/condition matching. Supports checkpointing (`checkpoint.go`), retry with backoff (`retry.go`), goal gates (`goalgate.go`), and model stylesheets (`stylesheet.go`). Handlers live in the `pipeline` package itself (not a subpackage) so the package can import `agent` without a cycle.
 
 **`llm/`** - Multi-provider LLM client. `Client` (`client.go`) routes requests to registered providers through a middleware chain. `adapters.FromEnv` (`adapters/fromenv.go`) auto-discovers providers from env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`). Each provider implements the `ProviderAdapter` interface in `adapters/`, backed by the official Go SDKs (`anthropic-sdk-go`, `openai-go`, Google `genai`). `catalog.go` maps model names to providers. Streaming (`Stream`) is currently a synthetic stream over `Complete` — the agent loop only uses `Complete`.
 
 **`agent/`** - Coding agent with agentic tool-use loop. `Session` manages state, history, and the `AgentLoop` which runs LLM → tool execution → repeat cycles. Tools (read/write/edit files, shell, glob, grep) and the `ExecutionEnvironment` abstraction live in `agent/tools/`. Includes loop detection and steering injection. The flow is synchronous, using `context.Context` for cancellation; the pipeline's parallel handler uses goroutines.
+
+**`web/`** - Live pipeline visualizer (the `serve` command and `run --web`). `hub.go` is a process-wide in-memory pub/sub keyed by `run_id`: a ring buffer of `RunEvent`s plus SSE subscriber channels, folding events into a per-node status snapshot for late-joining clients. `bridge.go` (`BridgeRunner`) adapts the runner's `OnNode*`/`OnEdge`/`OnRetry`/`OnAgentEvent` callbacks into hub events. `server.go` is a stdlib `net/http` server (Go 1.22 method+path `ServeMux` routing, no framework) exposing `GET /api/runs`, `/api/runs/{run_id}`, `/api/runs/{run_id}/nodes/{node_id}`, and an SSE `/api/runs/{run_id}/events`; it merges live hub state with on-disk artifacts (`pipeline.dot`, per-node `status.json`/`prompt.md`/`response.md`). The vanilla-JS frontend in `static/` (d3-graphviz, no build step) is embedded via `go:embed`. The runner writes `pipeline.dot` into the run dir during INITIALIZE so finished runs render their graph. CLI wiring in `cmd/attractor/main.go` composes the terminal `progressTracker` and the web bridge via `combine*` callback fan-out helpers.
 
 ## Skills
 

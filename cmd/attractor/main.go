@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -19,6 +20,7 @@ import (
 	"github.com/nigelpepper/attractor/internal/agent/tools"
 	"github.com/nigelpepper/attractor/internal/llm/adapters"
 	"github.com/nigelpepper/attractor/internal/pipeline"
+	"github.com/nigelpepper/attractor/internal/web"
 )
 
 const version = "0.1.0"
@@ -47,7 +49,7 @@ func rootCmd() *cobra.Command {
 		},
 	}
 	root.PersistentFlags().CountVarP(&verbose, "verbose", "v", "Increase verbosity (-v info, -vv debug)")
-	root.AddCommand(runCmd(), validateCmd(), chatCmd())
+	root.AddCommand(runCmd(), validateCmd(), chatCmd(), serveCmd())
 	return root
 }
 
@@ -59,8 +61,9 @@ func signalContext() (context.Context, context.CancelFunc) {
 // ── run ───────────────────────────────────────────────────────────────────
 
 func runCmd() *cobra.Command {
-	var runDir, model, provider, skillsDir string
-	var resume, restartFromSuccess bool
+	var runDir, model, provider, skillsDir, webHost string
+	var resume, restartFromSuccess, webEnabled bool
+	var webPort int
 
 	cmd := &cobra.Command{
 		Use:   "run <dotfile>",
@@ -96,8 +99,11 @@ func runCmd() *cobra.Command {
 				restartFrom = picked
 			}
 
+			ctx, cancel := signalContext()
+			defer cancel()
+
 			tracker := &progressTracker{}
-			runner := pipeline.NewPipelineRunner(pipeline.RunnerOptions{
+			opts := pipeline.RunnerOptions{
 				Client:           client,
 				SkillRegistry:    skillRegistry,
 				ModelOverride:    model,
@@ -106,14 +112,40 @@ func runCmd() *cobra.Command {
 				OnNodeEnd:        tracker.onNodeEnd,
 				OnEdge:           tracker.onEdge,
 				OnRetry:          tracker.onRetry,
-			})
+			}
 
-			ctx, cancel := signalContext()
-			defer cancel()
+			// Each run gets a fresh ID; with --web we need it up front so the
+			// server can stream this run from its first event.
+			runID := pipeline.NewRunID()
 
+			var hub *web.EventHub
+			if webEnabled {
+				srv := web.NewServer(webRunsDir(runDir), nil)
+				hub = srv.Hub()
+				hub.SetGraph(runID, string(source))
+				cb := web.BridgeRunner(hub, runID)
+				opts.OnNodeStart = combineNodeStart(tracker.onNodeStart, cb.OnNodeStart)
+				opts.OnNodeEnd = combineNodeEnd(tracker.onNodeEnd, cb.OnNodeEnd)
+				opts.OnEdge = combineEdge(tracker.onEdge, cb.OnEdge)
+				opts.OnRetry = combineRetry(tracker.onRetry, cb.OnRetry)
+				opts.OnAgentEvent = cb.OnAgentEvent
+
+				addr := fmt.Sprintf("%s:%d", webHost, webPort)
+				go func() {
+					if err := srv.ListenAndServe(ctx, addr); err != nil {
+						fmt.Fprintf(os.Stderr, "web server: %s\n", err)
+					}
+				}()
+				fmt.Printf("Web UI: http://%s/?run=%s\n", addr, runID)
+			}
+
+			runner := pipeline.NewPipelineRunner(opts)
 			result := runner.Run(ctx, string(source), pipeline.RunParams{
-				RunDir: runDir, Resume: resume, RestartFrom: restartFrom,
+				RunDir: runDir, RunID: runID, Resume: resume, RestartFrom: restartFrom,
 			})
+			if hub != nil {
+				hub.MarkFinished(runID)
+			}
 
 			fmt.Println()
 			if result.Success {
@@ -127,6 +159,12 @@ func runCmd() *cobra.Command {
 			fmt.Printf("  nodes executed: %s\n", strings.Join(result.NodesExecuted, ", "))
 			fmt.Printf("  run dir: %s\n", result.RunDir)
 
+			// With --web, keep serving after the run so results stay inspectable.
+			if hub != nil && ctx.Err() == nil {
+				fmt.Printf("\nWeb UI still serving on http://%s:%d  (Ctrl-C to stop)\n", webHost, webPort)
+				<-ctx.Done()
+			}
+
 			if !result.Success {
 				os.Exit(1)
 			}
@@ -139,6 +177,9 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&model, "model", "", "Override LLM model (e.g. claude-opus-4-7)")
 	cmd.Flags().StringVar(&provider, "provider", "", "Override LLM provider (openai, anthropic, gemini)")
 	cmd.Flags().StringVar(&skillsDir, "skills-dir", "", "Directory to load skills from")
+	cmd.Flags().BoolVar(&webEnabled, "web", false, "Launch the web UI and stream this run into it")
+	cmd.Flags().IntVar(&webPort, "web-port", 8765, "Port for the --web UI")
+	cmd.Flags().StringVar(&webHost, "web-host", "127.0.0.1", "Host for the --web UI")
 	cmd.MarkFlagsMutuallyExclusive("resume", "restart-from-success")
 	return cmd
 }
@@ -177,6 +218,54 @@ func pickRestartNode(runDir string) (string, error) {
 		}
 		fmt.Printf("  invalid choice: %q\n", raw)
 	}
+}
+
+// ── serve ───────────────────────────────────────────────────────────────────
+
+func serveCmd() *cobra.Command {
+	var runsDir, host string
+	var port int
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Launch the web UI over an existing runs/ directory",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			srv := web.NewServer(runsDir, nil)
+			addr := fmt.Sprintf("%s:%d", host, port)
+			ctx, cancel := signalContext()
+			defer cancel()
+			fmt.Printf("Attractor web UI: http://%s/  (Ctrl-C to stop)\n", addr)
+			return srv.ListenAndServe(ctx, addr)
+		},
+	}
+	cmd.Flags().StringVar(&runsDir, "runs-dir", "runs", "Directory of prior runs")
+	cmd.Flags().IntVar(&port, "port", 8765, "Port")
+	cmd.Flags().StringVar(&host, "host", "127.0.0.1", "Host")
+	return cmd
+}
+
+// webRunsDir returns the parent directory the web server should scan, given the
+// optional per-run --run-dir override.
+func webRunsDir(runDir string) string {
+	if runDir == "" {
+		return "runs"
+	}
+	return filepath.Dir(runDir)
+}
+
+// callback combinators: the runner takes a single hook each, so we fan out to
+// both the terminal progress tracker and the web bridge.
+func combineNodeStart(a, b func(*pipeline.Node, int, int)) func(*pipeline.Node, int, int) {
+	return func(n *pipeline.Node, i, t int) { a(n, i, t); b(n, i, t) }
+}
+func combineNodeEnd(a, b func(string, string)) func(string, string) {
+	return func(id, s string) { a(id, s); b(id, s) }
+}
+func combineEdge(a, b func(string, string, string)) func(string, string, string) {
+	return func(s, t, l string) { a(s, t, l); b(s, t, l) }
+}
+func combineRetry(a, b func(string, int, int, float64)) func(string, int, int, float64) {
+	return func(id string, at, mx int, d float64) { a(id, at, mx, d); b(id, at, mx, d) }
 }
 
 // ── validate ──────────────────────────────────────────────────────────────
