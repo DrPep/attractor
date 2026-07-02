@@ -133,10 +133,12 @@ func (h *CodergenHandler) Execute(ctx context.Context, node *Node, pctx *Pipelin
 	responseText := result.FinalResponse
 	_ = WriteResponse(node.ID, responseText, runDir)
 
+	usage := result.Usage
 	return Outcome{
 		Status:         "success",
 		Notes:          fmt.Sprintf("Completed with %d tool calls in %d turns", result.ToolCallsMade, result.TurnsUsed),
 		ContextUpdates: map[string]any{node.ID + ".response": responseText},
+		Usage:          &usage,
 	}, nil
 }
 

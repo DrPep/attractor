@@ -137,14 +137,17 @@ func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {
 		nodeState = map[string]map[string]any{}
 	}
 	// Fold in on-disk statuses for nodes not tracked live.
-	for nid, status := range s.readDiskStatuses(runDir) {
+	for nid, disk := range s.readDiskStatuses(runDir) {
 		entry := nodeState[nid]
 		if entry == nil {
 			entry = map[string]any{}
 			nodeState[nid] = entry
 		}
 		if _, ok := entry["status"]; !ok {
-			entry["status"] = status
+			entry["status"] = disk.status
+		}
+		if _, ok := entry["tokens"]; !ok && disk.tokens > 0 {
+			entry["tokens"] = disk.tokens
 		}
 	}
 
@@ -265,8 +268,14 @@ func (s *Server) readGraphDOT(runDir string) string {
 	return ""
 }
 
-func (s *Server) readDiskStatuses(runDir string) map[string]string {
-	out := map[string]string{}
+// diskStatus is the subset of a node's persisted status.json the run view needs.
+type diskStatus struct {
+	status string
+	tokens int
+}
+
+func (s *Server) readDiskStatuses(runDir string) map[string]diskStatus {
+	out := map[string]diskStatus{}
 	entries, err := os.ReadDir(runDir)
 	if err != nil {
 		return out
@@ -279,11 +288,16 @@ func (s *Server) readDiskStatuses(runDir string) map[string]string {
 		if data == nil {
 			continue
 		}
+		ds := diskStatus{status: "done"}
 		if outcome, ok := data["outcome"].(string); ok && outcome != "" {
-			out[e.Name()] = outcome
-		} else {
-			out[e.Name()] = "done"
+			ds.status = outcome
 		}
+		if usage, ok := data["usage"].(map[string]any); ok {
+			in, _ := toInt(usage["input_tokens"])
+			outT, _ := toInt(usage["output_tokens"])
+			ds.tokens = in + outT
+		}
+		out[e.Name()] = ds
 	}
 	return out
 }

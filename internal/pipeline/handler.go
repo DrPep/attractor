@@ -14,6 +14,7 @@ type Outcome struct {
 	SuggestedNextIDs []string
 	ContextUpdates   map[string]any
 	Notes            string
+	Usage            *llm.Usage // token usage, when the handler ran an LLM
 }
 
 // Handler executes a single node type.

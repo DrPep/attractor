@@ -227,6 +227,7 @@ func (r *PipelineRunner) run(ctx context.Context, dotSource string, params RunPa
 			SuggestedNextIDs:   outcome.SuggestedNextIDs,
 			ContextUpdates:     outcome.ContextUpdates,
 			Notes:              outcome.Notes,
+			Usage:              outcome.Usage,
 		}, runDir)
 
 		_ = SaveCheckpoint(Checkpoint{

@@ -39,6 +39,7 @@ type TurnResult struct {
 	FinalResponse string
 	ToolCallsMade int
 	TurnsUsed     int
+	Usage         llm.Usage // accumulated token usage across all turns
 }
 
 // AgentLoop runs the core agentic cycle: LLM → tools → repeat.
@@ -99,6 +100,11 @@ func (a *AgentLoop) RunTurn(ctx context.Context, history *ConversationHistory, s
 		if err != nil {
 			return result, err
 		}
+
+		result.Usage.InputTokens += resp.Usage.InputTokens
+		result.Usage.OutputTokens += resp.Usage.OutputTokens
+		result.Usage.CacheReadTokens += resp.Usage.CacheReadTokens
+		result.Usage.CacheWriteTokens += resp.Usage.CacheWriteTokens
 
 		a.events.Emit(llmResponseEvent(resp.Model, string(resp.FinishReason), resp.Usage.TotalTokens()))
 

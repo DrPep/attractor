@@ -166,6 +166,21 @@ func (h *EventHub) Subscribe(runID string, sinceSeq int) (ch chan RunEvent, back
 	return ch, backlog, unsub
 }
 
+// toInt coerces the numeric types that flow through event data (ints from the
+// runner, float64 after any JSON round-trip) into an int.
+func toInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	default:
+		return 0, false
+	}
+}
+
 // applyToNodeState folds an event into the per-node status snapshot so a client
 // that joins late sees the right graph colours without replaying everything.
 func applyToNodeState(st *runState, ev RunEvent) {
@@ -211,5 +226,24 @@ func applyToNodeState(st *runState, ev RunEvent) {
 			e["status"] = "retrying"
 			e["attempt"] = d["attempt"]
 		}
+	case "agent_event":
+		// Accumulate per-node token usage from each LLM response.
+		if nid == "" {
+			return
+		}
+		if t, _ := d["type"].(string); t != "llm_response" {
+			return
+		}
+		payload, _ := d["payload"].(map[string]any)
+		if payload == nil {
+			return
+		}
+		tokens, ok := toInt(payload["tokens"])
+		if !ok {
+			return
+		}
+		e := entry(nid)
+		prev, _ := toInt(e["tokens"])
+		e["tokens"] = prev + tokens
 	}
 }

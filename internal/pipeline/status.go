@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"github.com/nigelpepper/attractor/internal/llm"
 )
 
 // NodeStatus is the persisted result of a completed node.
@@ -13,6 +15,7 @@ type NodeStatus struct {
 	SuggestedNextIDs   []string       `json:"suggested_next_ids"`
 	ContextUpdates     map[string]any `json:"context_updates"`
 	Notes              string         `json:"notes"`
+	Usage              *llm.Usage     `json:"usage,omitempty"`
 }
 
 // WriteStatus writes status.json for a node.

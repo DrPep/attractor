@@ -146,6 +146,13 @@ main {
 #graph .node.selected ellipse,
 #graph .node.selected polygon,
 #graph .node.selected path { stroke-width: 3px; }
+#graph .node text.token-badge {
+  fill: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  pointer-events: none;
+}
 
 .legend {
   position: absolute;

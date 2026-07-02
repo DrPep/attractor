@@ -18,6 +18,7 @@ const state = {
   nextSeq: 0,
   selectedNodeId: null,
   nodeStatus: {},      // node_id -> status string
+  nodeTokens: {},      // node_id -> accumulated total tokens
   recentEvents: [],    // most recent events across the run
   graphReady: false,
 };
@@ -102,7 +103,7 @@ async function selectRun(runId) {
   closeStream();
   Object.assign(state, {
     runId, nextSeq: 0, selectedNodeId: null,
-    nodeStatus: {}, recentEvents: [], graphReady: false,
+    nodeStatus: {}, nodeTokens: {}, recentEvents: [], graphReady: false,
   });
   clearDetail();
 
@@ -119,6 +120,7 @@ async function selectRun(runId) {
   state.nextSeq = info.next_seq || 0;
   for (const [nid, entry] of Object.entries(info.node_state || {})) {
     if (entry.status) state.nodeStatus[nid] = entry.status;
+    if (entry.tokens) state.nodeTokens[nid] = entry.tokens;
   }
 
   if (info.graph_dot) {
@@ -127,6 +129,7 @@ async function selectRun(runId) {
     renderGraph(info.graph_dot, () => {
       state.graphReady = true;
       applyAllStatuses();
+      applyAllTokens();
       attachNodeClickHandlers();
     });
   } else {
@@ -182,6 +185,12 @@ function handleEvent(kind, event) {
       break;
     case "retry":
       if (d.node_id) setNodeStatus(d.node_id, "retrying");
+      break;
+    case "agent_event":
+      if (d.node_id && d.type === "llm_response") {
+        const tok = (d.payload && d.payload.tokens) || 0;
+        if (tok) addNodeTokens(d.node_id, tok);
+      }
       break;
     case "run_end":
       updateRunPill({ live: false, finished: true });
@@ -243,6 +252,43 @@ function colorizeNode(nodeId, status) {
     .style("fill", fade(color));
 }
 
+// ── per-node token usage ─────────────────────────────────────────────────
+
+function addNodeTokens(nodeId, tokens) {
+  state.nodeTokens[nodeId] = (state.nodeTokens[nodeId] || 0) + tokens;
+  if (state.graphReady) renderNodeTokens(nodeId);
+  if (nodeId === state.selectedNodeId) renderDetailMeta(nodeId);
+}
+
+function applyAllTokens() {
+  for (const nid of Object.keys(state.nodeTokens)) renderNodeTokens(nid);
+}
+
+function formatTokens(n) {
+  if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k";
+  return String(n);
+}
+
+// Draw (or update) a small "N tok" badge just below a node's shape. The badge
+// is re-created after each graph render, so it's driven off state.nodeTokens.
+function renderNodeTokens(nodeId) {
+  const tokens = state.nodeTokens[nodeId];
+  if (!tokens) return;
+  const sel = nodeSelection(nodeId);
+  if (sel.empty()) return;
+  const shape = sel.selectAll("ellipse, polygon, path").node();
+  if (!shape) return;
+  const b = shape.getBBox();
+  let badge = sel.select("text.token-badge");
+  if (badge.empty()) {
+    badge = sel.append("text").attr("class", "token-badge").attr("text-anchor", "middle");
+  }
+  badge
+    .attr("x", b.x + b.width / 2)
+    .attr("y", b.y + b.height + 13)
+    .text(formatTokens(tokens) + " tok");
+}
+
 // translucent fill derived from a hex stroke color
 function fade(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -286,10 +332,18 @@ async function loadNodeDetail(nodeId) {
   els["detail-response"].textContent = data?.response || "";
   els["detail-status"].textContent = data?.status ? JSON.stringify(data.status, null, 2) : "";
 
+  state.detailNotes = data?.status?.notes || "";
+  renderDetailMeta(nodeId);
+}
+
+function renderDetailMeta(nodeId) {
   const meta = els["detail-meta"];
   meta.innerHTML = "";
+  const status = state.nodeStatus[nodeId] || "";
   const rows = [["node", nodeId], ["status", status || "—"]];
-  if (data?.status?.notes) rows.push(["notes", data.status.notes]);
+  const tokens = state.nodeTokens[nodeId];
+  if (tokens) rows.push(["tokens", tokens.toLocaleString() + " total"]);
+  if (state.detailNotes) rows.push(["notes", state.detailNotes]);
   for (const [k, v] of rows) {
     const dt = document.createElement("dt"); dt.textContent = k;
     const dd = document.createElement("dd"); dd.textContent = v;

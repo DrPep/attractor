@@ -112,6 +112,28 @@ func TestHubNodeStateFolding(t *testing.T) {
 	}
 }
 
+func TestHubTokenAccumulation(t *testing.T) {
+	hub := NewEventHub()
+	emit := func(tokens int) {
+		hub.Publish("r", "agent_event", map[string]any{
+			"node_id": "a",
+			"type":    "llm_response",
+			"payload": map[string]any{"tokens": tokens},
+		})
+	}
+	emit(100)
+	emit(250)
+	// A non-llm_response agent_event must not affect the token total.
+	hub.Publish("r", "agent_event", map[string]any{
+		"node_id": "a", "type": "tool_call_end", "payload": map[string]any{"tokens": 999},
+	})
+
+	snap := hub.Snapshot("r")
+	if got := snap.NodeState["a"]["tokens"]; got != 350 {
+		t.Errorf("a tokens = %v, want 350", got)
+	}
+}
+
 func TestSSEStream(t *testing.T) {
 	dir := t.TempDir()
 	srv := NewServer(dir, nil)
