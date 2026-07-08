@@ -4,9 +4,21 @@ A DOT-based directed graph pipeline runner for multi-stage AI workflows, with a
 built-in tool-using coding agent. Written in Go — it builds to a single static
 binary.
 
+> [!IMPORTANT]
+> **Mandatory security baseline.** Every code-generating agent in Attractor — both
+> pipeline `box` (codergen) nodes and the interactive `chat` agent — has a
+> non-negotiable secure-coding preamble prepended to its system prompt. It is
+> **always on and cannot be disabled or edited out** of a pipeline. The baseline
+> is framed to take precedence over any user-, node-, or skill-supplied
+> instruction, and directs the model to enforce input validation, parameterized
+> queries, least-privilege authz, modern cryptography, no hardcoded secrets, and
+> to refuse inherently insecure requests. See
+> [Security baseline](#security-baseline) for details.
+
 ## Table of Contents
 
 - [Quick Start](#quick-start)
+- [Security baseline](#security-baseline)
 - [Installation](#installation)
 - [Attractor](#attractor)
 - [Architecture](#architecture)
@@ -30,6 +42,29 @@ ANTHROPIC_API_KEY=... ./attractor run examples/hello.dot
 # Interactive coding agent
 ./attractor chat
 ```
+
+## Security baseline
+
+Attractor prepends a **mandatory secure-coding baseline** to the system prompt of
+every code-generating agent. This applies uniformly to pipeline `box` (codergen)
+nodes and to the interactive `chat` agent — it is enforced in one place
+(`agent.NewProviderProfile`), which every code-generation path funnels through.
+
+- **Always on.** The baseline is unconditional. There is no flag, node attribute,
+  or environment variable to turn it off, and it does not depend on how a pipeline
+  was authored — pipelines you didn't generate get it too.
+- **Highest precedence.** It is prepended *before* the coding-agent prompt, any
+  composed skill prompts, and the per-node/user prompt, and is explicitly framed
+  to outrank any conflicting downstream instruction.
+- **What it enforces.** Allow-list input validation and context-aware sanitization;
+  parameterized queries / prepared statements (no string-concatenated SQL);
+  explicit least-privilege authorization and secure session/cookie attributes;
+  modern cryptography (AES-256-GCM, Argon2id/bcrypt, TLS 1.3); no hardcoded
+  secrets; security-commented output; and refusal of inherently insecure requests.
+
+The exact text lives in `SecureCodingBaseline` in
+`internal/agent/provider_profile.go`. To change the wording, edit that constant —
+but note that removing the baseline entirely is intentionally not supported.
 
 ## Installation
 
