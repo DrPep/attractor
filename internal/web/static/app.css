@@ -18,6 +18,11 @@
   --s-retrying: #d29922;
   --s-queued: #9aa7b4;
 
+  /* default (not-yet-run) graph rendering — Graphviz emits black, invisible on the dark canvas */
+  --graph-node-stroke: #6b7789;
+  --graph-edge: #57606c;
+  --graph-ink: var(--text);
+
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
@@ -32,6 +37,9 @@
   --accent: #1f6feb;
   --accent-soft: #ddebff;
   --shadow: 0 8px 30px rgba(20, 30, 50, 0.10);
+
+  --graph-node-stroke: #9aa4b2;
+  --graph-edge: #b0b8c2;
 }
 
 * { box-sizing: border-box; }
@@ -133,6 +141,19 @@ main {
 #graph { width: 100%; height: 100%; }
 #graph svg { width: 100%; height: 100%; }
 #graph svg text { font-family: var(--sans); }
+
+/* Default rendering for nodes/edges before a live status arrives. Graphviz
+   emits black strokes/labels as presentation attributes (invisible on the dark
+   canvas); these theme-aware rules override them. colorizeNode() sets inline
+   styles for statused nodes, which still win over these. */
+#graph .node ellipse,
+#graph .node polygon,
+#graph .node path { stroke: var(--graph-node-stroke); }
+#graph .node text { fill: var(--graph-ink); }
+#graph .edge path,
+#graph .edge polygon { stroke: var(--graph-edge); }
+#graph .edge polygon { fill: var(--graph-edge); }
+#graph .edge text { fill: var(--text-dim); }
 
 #empty-msg {
   position: absolute; inset: 0;
