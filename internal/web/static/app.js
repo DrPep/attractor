@@ -9,7 +9,7 @@ const STATUS_COLORS = {
   fail: "#f85149",
   error: "#f85149",
   retrying: "#d29922",
-  queued: "#6e7681",
+  queued: "#9aa7b4",
 };
 
 const state = {
