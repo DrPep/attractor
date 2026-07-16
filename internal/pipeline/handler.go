@@ -46,6 +46,8 @@ type RegistryOptions struct {
 	ModelOverride    string
 	ProviderOverride string
 	OnAgentEvent     func(agent.Event)
+	OnSessionStart   func(nodeID string, steer func(message string))
+	OnSessionEnd     func(nodeID string)
 }
 
 // DefaultRegistry builds a registry with all built-in handlers.
@@ -63,6 +65,8 @@ func DefaultRegistry(opts RegistryOptions) *HandlerRegistry {
 		modelOverride:    opts.ModelOverride,
 		providerOverride: opts.ProviderOverride,
 		onAgentEvent:     opts.OnAgentEvent,
+		onSessionStart:   opts.OnSessionStart,
+		onSessionEnd:     opts.OnSessionEnd,
 	})
 	r.Register(NodeWaitHuman, &WaitHumanHandler{interviewer: interviewer})
 	r.Register(NodeConditional, &ConditionalHandler{})

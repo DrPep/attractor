@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -64,6 +65,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/runs", s.handleListRuns)
 	s.mux.HandleFunc("GET /api/runs/{run_id}", s.handleGetRun)
 	s.mux.HandleFunc("GET /api/runs/{run_id}/nodes/{node_id}", s.handleGetNode)
+	s.mux.HandleFunc("POST /api/runs/{run_id}/nodes/{node_id}/steer", s.handleSteer)
 	s.mux.HandleFunc("GET /api/runs/{run_id}/events", s.handleEvents)
 
 	sub, _ := fs.Sub(staticFS, "static")
@@ -183,6 +185,31 @@ func (s *Server) handleGetNode(w http.ResponseWriter, r *http.Request) {
 		"response": readText(filepath.Join(nodeDir, "response.md")),
 		"status":   readJSON(filepath.Join(nodeDir, "status.json")),
 	})
+}
+
+// handleSteer injects a corrective feedback message into a running node's agent
+// session. It succeeds only while that node has a live session registered.
+func (s *Server) handleSteer(w http.ResponseWriter, r *http.Request) {
+	runID := r.PathValue("run_id")
+	nodeID := r.PathValue("node_id")
+
+	var body struct {
+		Message string `json:"message"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "invalid JSON body"})
+		return
+	}
+	if strings.TrimSpace(body.Message) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "message is required"})
+		return
+	}
+
+	if !s.hub.Steer(runID, nodeID, body.Message) {
+		writeJSON(w, http.StatusConflict, map[string]any{"detail": "node " + nodeID + " is not accepting feedback"})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": "queued"})
 }
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {

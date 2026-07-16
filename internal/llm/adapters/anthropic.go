@@ -3,6 +3,7 @@ package adapters
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -137,6 +138,24 @@ func (a *AnthropicAdapter) translateTools(tools []llm.ToolDefinition) []anthropi
 	return out
 }
 
+// anthropicThinkingBudget maps a reasoning-effort level to an extended-thinking
+// token budget. A zero result disables thinking. Anthropic requires the budget
+// to be at least 1024 tokens.
+func anthropicThinkingBudget(effort string) int64 {
+	switch strings.ToLower(strings.TrimSpace(effort)) {
+	case "", "none":
+		return 0
+	case "low":
+		return 2048
+	case "high":
+		return 16384
+	case "xhigh", "max", "very-high", "very_high":
+		return 32000
+	default: // "medium" and any unrecognized-but-present value
+		return 8192
+	}
+}
+
 func (a *AnthropicAdapter) buildParams(req llm.Request) (anthropic.MessageNewParams, error) {
 	sys, remaining := a.extractSystem(req.Messages)
 	messages := a.translateMessages(remaining)
@@ -146,6 +165,18 @@ func (a *AnthropicAdapter) buildParams(req llm.Request) (anthropic.MessageNewPar
 	maxTokens := req.MaxTokens
 	if maxTokens == 0 {
 		maxTokens = 8192
+	}
+	// Extended thinking: enabled when the request asks for reasoning effort. The
+	// budget must be smaller than max_tokens, so grow max_tokens to leave room
+	// for the visible response after the thinking budget.
+	thinkingBudget := anthropicThinkingBudget(req.ReasoningEffort)
+	// Only models that support extended thinking accept a thinking block; sending
+	// one to e.g. Haiku would be rejected. Default to allowing it for unknown IDs.
+	if info, ok := llm.GetModelInfo(req.Model); ok && !info.SupportsReasoning {
+		thinkingBudget = 0
+	}
+	if thinkingBudget > 0 && int64(maxTokens) <= thinkingBudget {
+		maxTokens = int(thinkingBudget) + 8192
 	}
 	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(req.Model),
@@ -159,7 +190,11 @@ func (a *AnthropicAdapter) buildParams(req llm.Request) (anthropic.MessageNewPar
 	if tools := a.translateTools(req.Tools); tools != nil {
 		params.Tools = tools
 	}
-	if req.Temperature != nil {
+	if thinkingBudget > 0 {
+		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(thinkingBudget)
+	} else if req.Temperature != nil {
+		// Anthropic rejects a non-default temperature when thinking is on, so
+		// only forward it when thinking is disabled.
 		params.Temperature = param.NewOpt(*req.Temperature)
 	}
 	if len(req.StopSequences) > 0 {

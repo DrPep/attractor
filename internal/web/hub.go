@@ -36,15 +36,51 @@ func newRunState() *runState {
 }
 
 // EventHub is a process-wide pub/sub keyed by run_id. One hub per server; a
-// running pipeline publishes into it and SSE clients subscribe.
+// running pipeline publishes into it and SSE clients subscribe. It also holds a
+// registry of steer callbacks for nodes with a live agent session, so the HTTP
+// layer can inject corrective feedback into a running node.
 type EventHub struct {
 	mu   sync.Mutex
 	runs map[string]*runState
+
+	steerMu  sync.Mutex
+	steerers map[string]func(string) // key: runID + "\x00" + nodeID
 }
 
 // NewEventHub returns an empty hub.
 func NewEventHub() *EventHub {
-	return &EventHub{runs: map[string]*runState{}}
+	return &EventHub{runs: map[string]*runState{}, steerers: map[string]func(string){}}
+}
+
+func steerKey(runID, nodeID string) string { return runID + "\x00" + nodeID }
+
+// RegisterSteerer records a steer callback for a node with a live agent session.
+// The callback queues a message to be injected before the node's next model turn.
+func (h *EventHub) RegisterSteerer(runID, nodeID string, steer func(string)) {
+	h.steerMu.Lock()
+	defer h.steerMu.Unlock()
+	h.steerers[steerKey(runID, nodeID)] = steer
+}
+
+// UnregisterSteerer removes a node's steer callback once its session ends.
+func (h *EventHub) UnregisterSteerer(runID, nodeID string) {
+	h.steerMu.Lock()
+	defer h.steerMu.Unlock()
+	delete(h.steerers, steerKey(runID, nodeID))
+}
+
+// Steer delivers a corrective message to a live node session, returning false if
+// no session is currently registered for that node.
+func (h *EventHub) Steer(runID, nodeID, message string) bool {
+	h.steerMu.Lock()
+	steer := h.steerers[steerKey(runID, nodeID)]
+	h.steerMu.Unlock()
+	if steer == nil {
+		return false
+	}
+	steer(message)
+	h.Publish(runID, "steer", map[string]any{"node_id": nodeID, "message": message})
+	return true
 }
 
 func (h *EventHub) run(runID string) *runState {

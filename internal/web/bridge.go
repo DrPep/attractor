@@ -8,11 +8,13 @@ import (
 // Callbacks adapts the PipelineRunner's callback hooks into hub events for a
 // given run. Spread the returned struct's fields into RunnerOptions.
 type Callbacks struct {
-	OnNodeStart  func(node *pipeline.Node, index, total int)
-	OnNodeEnd    func(nodeID, status string)
-	OnEdge       func(src, target, label string)
-	OnRetry      func(nodeID string, attempt, maxRetries int, delay float64)
-	OnAgentEvent func(agent.Event)
+	OnNodeStart    func(node *pipeline.Node, index, total int)
+	OnNodeEnd      func(nodeID, status string)
+	OnEdge         func(src, target, label string)
+	OnRetry        func(nodeID string, attempt, maxRetries int, delay float64)
+	OnAgentEvent   func(agent.Event)
+	OnSessionStart func(nodeID string, steer func(message string))
+	OnSessionEnd   func(nodeID string)
 }
 
 // BridgeRunner builds the callback set that streams a run into the hub.
@@ -63,6 +65,12 @@ func BridgeRunner(hub *EventHub, runID string) Callbacks {
 				}
 			}
 			hub.Publish(runID, "agent_event", data)
+		},
+		OnSessionStart: func(nodeID string, steer func(message string)) {
+			hub.RegisterSteerer(runID, nodeID, steer)
+		},
+		OnSessionEnd: func(nodeID string) {
+			hub.UnregisterSteerer(runID, nodeID)
 		},
 	}
 }

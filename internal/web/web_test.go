@@ -134,6 +134,51 @@ func TestHubTokenAccumulation(t *testing.T) {
 	}
 }
 
+func TestSteerEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	srv := NewServer(dir, nil)
+	hub := srv.Hub()
+
+	post := func(node, body string) *httptest.ResponseRecorder {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", "/api/runs/r1/nodes/"+node+"/steer", strings.NewReader(body))
+		srv.ServeHTTP(rr, req)
+		return rr
+	}
+
+	// No live session registered → 409.
+	if rr := post("code", `{"message":"try again"}`); rr.Code != http.StatusConflict {
+		t.Fatalf("steer without session = %d, want 409", rr.Code)
+	}
+
+	// Register a session; the steer callback should receive the message.
+	var got string
+	hub.RegisterSteerer("r1", "code", func(m string) { got = m })
+
+	if rr := post("code", `{"message":"fix the parser"}`); rr.Code != http.StatusAccepted {
+		t.Fatalf("steer with session = %d, want 202", rr.Code)
+	}
+	if got != "fix the parser" {
+		t.Errorf("steer delivered %q, want %q", got, "fix the parser")
+	}
+	// A "steer" event must be published for the UI to observe.
+	snap := hub.Snapshot("r1")
+	if !snap.Known {
+		t.Fatal("run should be known after steering")
+	}
+
+	// Empty message → 400.
+	if rr := post("code", `{"message":"  "}`); rr.Code != http.StatusBadRequest {
+		t.Errorf("empty steer = %d, want 400", rr.Code)
+	}
+
+	// After the session ends, steering is refused again.
+	hub.UnregisterSteerer("r1", "code")
+	if rr := post("code", `{"message":"late"}`); rr.Code != http.StatusConflict {
+		t.Errorf("steer after unregister = %d, want 409", rr.Code)
+	}
+}
+
 func TestSSEStream(t *testing.T) {
 	dir := t.TempDir()
 	srv := NewServer(dir, nil)

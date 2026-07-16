@@ -40,6 +40,12 @@ type RunnerOptions struct {
 	OnEdge       func(src, target, label string)
 	OnRetry      func(nodeID string, attempt, maxRetries int, delay float64)
 	OnAgentEvent func(agent.Event)
+
+	// OnSessionStart is called when a codergen node's agent session begins,
+	// passing a steer callback that injects a message before the next model
+	// turn. OnSessionEnd is called when the session finishes.
+	OnSessionStart func(nodeID string, steer func(message string))
+	OnSessionEnd   func(nodeID string)
 }
 
 // PipelineRunner parses, validates, and executes a pipeline graph.
@@ -61,6 +67,8 @@ func NewPipelineRunner(opts RunnerOptions) *PipelineRunner {
 			ModelOverride:    opts.ModelOverride,
 			ProviderOverride: opts.ProviderOverride,
 			OnAgentEvent:     opts.OnAgentEvent,
+			OnSessionStart:   opts.OnSessionStart,
+			OnSessionEnd:     opts.OnSessionEnd,
 		})
 	}
 	return &PipelineRunner{registry: registry, skillRegistry: opts.SkillRegistry, opts: opts}

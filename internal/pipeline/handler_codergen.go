@@ -23,6 +23,8 @@ type CodergenHandler struct {
 	modelOverride    string
 	providerOverride string
 	onAgentEvent     func(agent.Event)
+	onSessionStart   func(nodeID string, steer func(message string))
+	onSessionEnd     func(nodeID string)
 }
 
 // Execute runs the coding agent for a codergen node.
@@ -119,6 +121,14 @@ func (h *CodergenHandler) Execute(ctx context.Context, node *Node, pctx *Pipelin
 			}
 			forward(e)
 		})
+	}
+
+	// Expose the session for inline steering (corrective feedback) while it runs.
+	if h.onSessionStart != nil {
+		h.onSessionStart(node.ID, session.Steer)
+		if h.onSessionEnd != nil {
+			defer h.onSessionEnd(node.ID)
+		}
 	}
 
 	result, err := session.Submit(ctx, prompt)

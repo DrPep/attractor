@@ -19,7 +19,9 @@ const state = {
   selectedNodeId: null,
   nodeStatus: {},      // node_id -> status string
   nodeTokens: {},      // node_id -> accumulated total tokens
+  nodeReasoning: {},   // node_id -> concatenated reasoning text
   recentEvents: [],    // most recent events across the run
+  runningNodeId: null, // node currently executing (for the status bar)
   graphReady: false,
 };
 
@@ -31,13 +33,21 @@ function $(id) { return document.getElementById(id); }
 async function boot() {
   for (const id of ["run-picker", "run-status", "graph", "empty-msg", "legend",
     "detail-title", "detail-badge", "detail-body", "detail-meta", "detail-prompt",
-    "detail-response", "detail-status", "detail-events", "theme-toggle"]) {
+    "detail-response", "detail-status", "detail-events", "theme-toggle",
+    "status-bar", "status-bar-node", "status-bar-text",
+    "detail-reasoning", "detail-reasoning-wrap",
+    "steer-box", "steer-input", "steer-send", "steer-status"]) {
     els[id] = $(id);
   }
   els["detail-pane"] = $("detail-title").closest("aside");
 
   initTheme();
   els["run-picker"].addEventListener("change", () => selectRun(els["run-picker"].value));
+  els["steer-send"].addEventListener("click", sendSteer);
+  els["steer-input"].addEventListener("keydown", (e) => {
+    // ⌘/Ctrl+Enter sends; plain Enter keeps a newline.
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendSteer(); }
+  });
 
   await refreshRunList();
 
@@ -103,8 +113,10 @@ async function selectRun(runId) {
   closeStream();
   Object.assign(state, {
     runId, nextSeq: 0, selectedNodeId: null,
-    nodeStatus: {}, nodeTokens: {}, recentEvents: [], graphReady: false,
+    nodeStatus: {}, nodeTokens: {}, nodeReasoning: {},
+    recentEvents: [], runningNodeId: null, graphReady: false,
   });
+  clearReasoningBar();
   clearDetail();
 
   let info;
@@ -172,12 +184,19 @@ function handleEvent(kind, event) {
   const d = event.data || {};
   switch (kind) {
     case "node_start":
-      if (d.node_id) setNodeStatus(d.node_id, "running");
+      if (d.node_id) {
+        setNodeStatus(d.node_id, "running");
+        state.runningNodeId = d.node_id;
+      }
       break;
     case "node_end":
       if (d.node_id) {
         setNodeStatus(d.node_id, d.outcome || "success");
-        if (d.node_id === state.selectedNodeId) loadNodeDetail(d.node_id);
+        if (d.node_id === state.runningNodeId) clearReasoningBar();
+        if (d.node_id === state.selectedNodeId) {
+          loadNodeDetail(d.node_id);
+          updateSteerBox(d.node_id);
+        }
       }
       break;
     case "edge":
@@ -187,10 +206,18 @@ function handleEvent(kind, event) {
       if (d.node_id) setNodeStatus(d.node_id, "retrying");
       break;
     case "agent_event":
-      if (d.node_id && d.type === "llm_response") {
+      if (!d.node_id) break;
+      if (d.type === "llm_response") {
         const tok = (d.payload && d.payload.tokens) || 0;
         if (tok) addNodeTokens(d.node_id, tok);
+      } else if (d.type === "thinking") {
+        const text = (d.payload && d.payload.text) || "";
+        if (text) addNodeReasoning(d.node_id, text);
       }
+      break;
+    case "steer":
+      // A steering message the UI (or someone) injected; surface it in the bar.
+      if (d.node_id) showReasoningBar(d.node_id, "↩ feedback sent: " + (d.message || ""));
       break;
     case "run_end":
       updateRunPill({ live: false, finished: true });
@@ -289,6 +316,48 @@ function renderNodeTokens(nodeId) {
     .text(formatTokens(tokens) + " tok");
 }
 
+// ── reasoning (model thinking) ───────────────────────────────────────────
+
+function addNodeReasoning(nodeId, text) {
+  const prev = state.nodeReasoning[nodeId] || "";
+  state.nodeReasoning[nodeId] = prev ? prev + "\n\n" + text : text;
+  // The status bar tracks whichever node is currently running.
+  if (nodeId === state.runningNodeId) showReasoningBar(nodeId, lastLine(text));
+  if (nodeId === state.selectedNodeId) renderReasoning(nodeId);
+}
+
+// lastLine returns the final non-empty line of a reasoning chunk — the freshest
+// thought — for the single-line status bar.
+function lastLine(text) {
+  const lines = text.split("\n").map(s => s.trim()).filter(Boolean);
+  return lines.length ? lines[lines.length - 1] : text.trim();
+}
+
+function showReasoningBar(nodeId, text) {
+  const bar = els["status-bar"];
+  if (!bar) return;
+  bar.hidden = false;
+  els["status-bar-node"].textContent = nodeId;
+  els["status-bar-text"].textContent = text;
+}
+
+function clearReasoningBar() {
+  const bar = els["status-bar"];
+  if (!bar) return;
+  bar.hidden = true;
+  els["status-bar-node"].textContent = "";
+  els["status-bar-text"].textContent = "";
+}
+
+function renderReasoning(nodeId) {
+  const pre = els["detail-reasoning"];
+  const wrap = els["detail-reasoning-wrap"];
+  if (!pre) return;
+  const text = state.nodeReasoning[nodeId] || "";
+  pre.textContent = text;
+  if (wrap) wrap.hidden = !text;
+}
+
 // translucent fill derived from a hex stroke color
 function fade(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -313,7 +382,9 @@ function selectNode(nodeId) {
   els["detail-title"].textContent = nodeId;
   els["detail-body"].hidden = false;
   loadNodeDetail(nodeId);
+  renderReasoning(nodeId);
   renderRecentEventsForNode(nodeId);
+  updateSteerBox(nodeId);
 }
 
 async function loadNodeDetail(nodeId) {
@@ -368,9 +439,58 @@ function summarize(e) {
   const d = e.data || {};
   if (e.kind === "node_end") return d.outcome || "";
   if (e.kind === "retry") return `attempt ${d.attempt}`;
-  if (e.kind === "agent_event") return d.type || "";
+  if (e.kind === "steer") return d.message || "";
+  if (e.kind === "agent_event") {
+    const p = d.payload || {};
+    switch (d.type) {
+      case "thinking": return truncate(lastLine(p.text || ""), 80);
+      case "tool_call_start": return `${p.tool_name || "tool"}(…)`;
+      case "tool_call_end": return `${p.tool_name || "tool"} ${p.success ? "ok" : "failed"}`;
+      case "tool_error": return `${p.tool_name || "tool"}: ${p.error || ""}`;
+      case "steering_injected": return `↩ ${truncate(p.text || "", 80)}`;
+      case "llm_response": return p.tokens ? `${p.tokens} tok` : "response";
+      default: return d.type || "";
+    }
+  }
   if (e.kind === "edge") return `→ ${d.target || ""}`;
   return "";
+}
+
+function truncate(s, n) { return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+
+// ── steering (inline corrective feedback) ────────────────────────────────
+
+// Show the steer box only while the node is actively running.
+function updateSteerBox(nodeId) {
+  const box = els["steer-box"];
+  if (!box) return;
+  const running = state.nodeStatus[nodeId] === "running";
+  box.hidden = !running;
+  if (!running) els["steer-status"].textContent = "";
+}
+
+async function sendSteer() {
+  const nodeId = state.selectedNodeId;
+  const input = els["steer-input"];
+  const msg = input.value.trim();
+  if (!nodeId || !msg) return;
+  els["steer-status"].textContent = "sending…";
+  try {
+    const r = await fetch(
+      `/api/runs/${encodeURIComponent(state.runId)}/nodes/${encodeURIComponent(nodeId)}/steer`,
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: msg }) });
+    if (r.status === 202) {
+      input.value = "";
+      els["steer-status"].textContent = "queued — applies before the next model turn";
+    } else if (r.status === 404 || r.status === 409) {
+      els["steer-status"].textContent = "node is no longer accepting feedback";
+    } else {
+      els["steer-status"].textContent = "failed to send";
+    }
+  } catch {
+    els["steer-status"].textContent = "failed to send";
+  }
 }
 
 function clearDetail() {
@@ -379,6 +499,7 @@ function clearDetail() {
   els["detail-body"].hidden = true;
   els["detail-title"].textContent = "Node";
   els["detail-badge"].textContent = "";
+  if (els["steer-box"]) els["steer-box"].hidden = true;
 }
 
 // ── run status pill ──────────────────────────────────────────────────────

@@ -129,6 +129,8 @@ func runCmd() *cobra.Command {
 				opts.OnEdge = combineEdge(tracker.onEdge, cb.OnEdge)
 				opts.OnRetry = combineRetry(tracker.onRetry, cb.OnRetry)
 				opts.OnAgentEvent = cb.OnAgentEvent
+				opts.OnSessionStart = cb.OnSessionStart
+				opts.OnSessionEnd = cb.OnSessionEnd
 
 				addr := fmt.Sprintf("%s:%d", webHost, webPort)
 				go func() {

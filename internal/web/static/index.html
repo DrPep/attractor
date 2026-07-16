@@ -37,6 +37,10 @@
         <span class="legend-item"><i class="dot s-retrying"></i>retrying</span>
         <span class="legend-item"><i class="dot s-queued"></i>queued</span>
       </div>
+      <div id="status-bar" class="status-bar" hidden>
+        <span id="status-bar-node" class="status-bar-node"></span>
+        <span id="status-bar-text" class="status-bar-text"></span>
+      </div>
     </section>
     <aside id="detail-pane" class="empty">
       <header class="detail-head">
@@ -49,6 +53,19 @@
         <details open>
           <summary>Prompt</summary>
           <pre id="detail-prompt" class="doc"></pre>
+        </details>
+        <div id="steer-box" class="steer" hidden>
+          <label for="steer-input">Send corrective feedback</label>
+          <textarea id="steer-input" rows="2"
+            placeholder="e.g. Don't touch config.go — fix the parser instead."></textarea>
+          <div class="steer-row">
+            <button id="steer-send" class="ghost">Send (⌘⏎)</button>
+            <span id="steer-status" class="steer-status"></span>
+          </div>
+        </div>
+        <details id="detail-reasoning-wrap" open hidden>
+          <summary>Reasoning</summary>
+          <pre id="detail-reasoning" class="doc"></pre>
         </details>
         <details open>
           <summary>Response</summary>
