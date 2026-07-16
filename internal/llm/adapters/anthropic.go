@@ -229,17 +229,29 @@ func injectUserCacheControl(messages []anthropic.MessageParam) {
 	}
 }
 
-// Complete performs a non-streaming completion.
+// Complete performs a completion. It streams under the hood and accumulates the
+// events into a full message: the SDK refuses a plain (non-streaming) request
+// whose max_tokens budget could take longer than 10 minutes (e.g. high reasoning
+// effort grows max_tokens past that threshold), so streaming is the only way to
+// reliably serve large-budget requests. The accumulated message is identical in
+// shape to a non-streaming response.
 func (a *AnthropicAdapter) Complete(ctx context.Context, req llm.Request) (llm.Response, error) {
 	params, err := a.buildParams(req)
 	if err != nil {
 		return llm.Response{}, err
 	}
-	raw, err := a.client.Messages.New(ctx, params)
-	if err != nil {
+	stream := a.client.Messages.NewStreaming(ctx, params)
+	defer stream.Close()
+	var msg anthropic.Message
+	for stream.Next() {
+		if err := msg.Accumulate(stream.Current()); err != nil {
+			return llm.Response{}, classifyAnthropicError(err)
+		}
+	}
+	if err := stream.Err(); err != nil {
 		return llm.Response{}, classifyAnthropicError(err)
 	}
-	return a.parseResponse(raw), nil
+	return a.parseResponse(&msg), nil
 }
 
 // Stream satisfies the adapter interface via a synthetic stream over Complete.
