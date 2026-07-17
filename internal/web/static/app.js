@@ -23,6 +23,10 @@ const state = {
   recentEvents: [],    // most recent events across the run
   runningNodeId: null, // node currently executing (for the status bar)
   graphReady: false,
+  // Detail-pane fields for the selected node, loaded with its status.json.
+  detailNotes: "",
+  detailModel: "",
+  detailProvider: "",
 };
 
 const els = {};
@@ -404,6 +408,10 @@ async function loadNodeDetail(nodeId) {
   els["detail-status"].textContent = data?.status ? JSON.stringify(data.status, null, 2) : "";
 
   state.detailNotes = data?.status?.notes || "";
+  // Only nodes that ran an LLM record these; they land with status.json when the
+  // node finishes, so a node still running shows no model yet.
+  state.detailModel = data?.status?.model || "";
+  state.detailProvider = data?.status?.provider || "";
   renderDetailMeta(nodeId);
 }
 
@@ -412,6 +420,10 @@ function renderDetailMeta(nodeId) {
   meta.innerHTML = "";
   const status = state.nodeStatus[nodeId] || "";
   const rows = [["node", nodeId], ["status", status || "—"]];
+  if (state.detailModel) {
+    const provider = state.detailProvider;
+    rows.push(["model", provider ? `${state.detailModel} (${provider})` : state.detailModel]);
+  }
   const tokens = state.nodeTokens[nodeId];
   if (tokens) rows.push(["tokens", tokens.toLocaleString() + " total"]);
   if (state.detailNotes) rows.push(["notes", state.detailNotes]);
