@@ -22,9 +22,16 @@ load_secret() {
   security find-generic-password -s "$1" -w 2>/dev/null || true
 }
 
-# Locate the attractor binary: prefer one next to this script, else fall back to PATH.
+# Rebuild from the working tree so a run never silently executes a stale binary.
+# Go's build cache makes this a no-op when nothing changed. If the source tree or
+# the go toolchain isn't there, fall back to a prebuilt binary or one on PATH.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ATTRACTOR="$SCRIPT_DIR/../attractor"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ATTRACTOR="$REPO_ROOT/attractor"
+
+if [ -f "$REPO_ROOT/go.mod" ] && command -v go >/dev/null 2>&1; then
+  go build -C "$REPO_ROOT" -o "$ATTRACTOR" ./cmd/attractor
+fi
 [ -x "$ATTRACTOR" ] || ATTRACTOR="attractor"
 
 ANTHROPIC_API_KEY="$(load_secret ANTHROPIC_API_KEY)" \
