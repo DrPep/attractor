@@ -74,7 +74,7 @@ func (h *CodergenHandler) Execute(ctx context.Context, node *Node, pctx *Pipelin
 		return Outcome{Status: status, Notes: "No LLM client configured"}, nil
 	}
 
-	model := firstNonEmpty(h.modelOverride, node.LLMModel(), "claude-opus-4-7")
+	model := firstNonEmpty(h.modelOverride, node.LLMModel(), llm.DefaultModel)
 	provider := firstNonEmpty(h.providerOverride, node.LLMProvider())
 
 	systemPrompt := agent.CodingAgentSystemPrompt

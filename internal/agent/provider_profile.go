@@ -97,7 +97,7 @@ func NewProviderProfile(provider, model, systemPrompt, reasoningEffort string) P
 // ProfileForAnthropic returns a default Anthropic profile.
 func ProfileForAnthropic(model string) ProviderProfile {
 	if model == "" {
-		model = "claude-opus-4-7"
+		model = llm.DefaultModel
 	}
 	return NewProviderProfile("anthropic", model, CodingAgentSystemPrompt, "")
 }

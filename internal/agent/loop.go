@@ -23,7 +23,7 @@ type SessionConfig struct {
 // DefaultSessionConfig returns a config with sensible defaults for a model.
 func DefaultSessionConfig(model string) SessionConfig {
 	if model == "" {
-		model = "claude-opus-4-7"
+		model = llm.DefaultModel
 	}
 	return SessionConfig{
 		MaxTurns:           50,

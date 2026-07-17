@@ -140,20 +140,64 @@ func (a *AnthropicAdapter) translateTools(tools []llm.ToolDefinition) []anthropi
 
 // anthropicThinkingBudget maps a reasoning-effort level to an extended-thinking
 // token budget. A zero result disables thinking. Anthropic requires the budget
-// to be at least 1024 tokens.
+// to be at least 1024 tokens. Only models on the legacy token-budget contract
+// (Sonnet 4.5 and older) use this — newer ones take an effort level instead.
 func anthropicThinkingBudget(effort string) int64 {
-	switch strings.ToLower(strings.TrimSpace(effort)) {
+	switch normalizeEffort(effort) {
 	case "", "none":
 		return 0
 	case "low":
 		return 2048
 	case "high":
 		return 16384
-	case "xhigh", "max", "very-high", "very_high":
+	case "xhigh", "max":
 		return 32000
 	default: // "medium" and any unrecognized-but-present value
 		return 8192
 	}
+}
+
+// normalizeEffort canonicalizes the effort spellings the DOT pipeline accepts.
+func normalizeEffort(effort string) string {
+	switch e := strings.ToLower(strings.TrimSpace(effort)); e {
+	case "very-high", "very_high":
+		return "xhigh"
+	default:
+		return e
+	}
+}
+
+// anthropicEffort maps a reasoning-effort level onto Anthropic's output_config
+// effort levels. supportsXHigh reports whether the model accepts "xhigh", which
+// arrived with Opus 4.7; models without it take the next level down rather than
+// "max", which would spend more than the caller asked for.
+func anthropicEffort(effort string, supportsXHigh bool) anthropic.OutputConfigEffort {
+	switch normalizeEffort(effort) {
+	case "low":
+		return anthropic.OutputConfigEffortLow
+	case "high":
+		return anthropic.OutputConfigEffortHigh
+	case "xhigh":
+		if !supportsXHigh {
+			return anthropic.OutputConfigEffortHigh
+		}
+		return anthropic.OutputConfigEffortXhigh
+	case "max":
+		return anthropic.OutputConfigEffortMax
+	default: // "medium" and any unrecognized-but-present value
+		return anthropic.OutputConfigEffortMedium
+	}
+}
+
+// anthropicReasoning resolves a model's reasoning contract. Model IDs missing
+// from the catalog default to Anthropic's current contract — adaptive thinking,
+// no sampling params — so a newly released model works before it is catalogued.
+func anthropicReasoning(model string) (style llm.ReasoningStyle, sampling, xhigh bool) {
+	info, ok := llm.GetModelInfo(model)
+	if !ok {
+		return llm.ReasoningEffort, false, true
+	}
+	return info.Reasoning, info.SupportsSampling, info.SupportsXHighEffort
 }
 
 func (a *AnthropicAdapter) buildParams(req llm.Request) (anthropic.MessageNewParams, error) {
@@ -166,22 +210,9 @@ func (a *AnthropicAdapter) buildParams(req llm.Request) (anthropic.MessageNewPar
 	if maxTokens == 0 {
 		maxTokens = 8192
 	}
-	// Extended thinking: enabled when the request asks for reasoning effort. The
-	// budget must be smaller than max_tokens, so grow max_tokens to leave room
-	// for the visible response after the thinking budget.
-	thinkingBudget := anthropicThinkingBudget(req.ReasoningEffort)
-	// Only models that support extended thinking accept a thinking block; sending
-	// one to e.g. Haiku would be rejected. Default to allowing it for unknown IDs.
-	if info, ok := llm.GetModelInfo(req.Model); ok && !info.SupportsReasoning {
-		thinkingBudget = 0
-	}
-	if thinkingBudget > 0 && int64(maxTokens) <= thinkingBudget {
-		maxTokens = int(thinkingBudget) + 8192
-	}
 	params := anthropic.MessageNewParams{
-		Model:     anthropic.Model(req.Model),
-		MaxTokens: int64(maxTokens),
-		Messages:  messages,
+		Model:    anthropic.Model(req.Model),
+		Messages: messages,
 	}
 	if len(sys) > 0 {
 		params.System = sys
@@ -190,11 +221,39 @@ func (a *AnthropicAdapter) buildParams(req llm.Request) (anthropic.MessageNewPar
 	if tools := a.translateTools(req.Tools); tools != nil {
 		params.Tools = tools
 	}
-	if thinkingBudget > 0 {
-		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(thinkingBudget)
-	} else if req.Temperature != nil {
-		// Anthropic rejects a non-default temperature when thinking is on, so
-		// only forward it when thinking is disabled.
+
+	// Reasoning config is model-dependent: Opus 4.7 and later take adaptive
+	// thinking plus an effort level and reject a thinking token budget with a
+	// 400, while older models take only the budget.
+	style, sampling, xhigh := anthropicReasoning(req.Model)
+	thinking := false
+	switch style {
+	case llm.ReasoningEffort:
+		if e := normalizeEffort(req.ReasoningEffort); e != "" && e != "none" {
+			thinking = true
+			params.Thinking = anthropic.ThinkingConfigParamUnion{
+				OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{},
+			}
+			params.OutputConfig = anthropic.OutputConfigParam{
+				Effort: anthropicEffort(req.ReasoningEffort, xhigh),
+			}
+		}
+	case llm.ReasoningTokenBudget:
+		// The budget must be smaller than max_tokens, so grow max_tokens to leave
+		// room for the visible response after the thinking budget.
+		if budget := anthropicThinkingBudget(req.ReasoningEffort); budget > 0 {
+			thinking = true
+			if int64(maxTokens) <= budget {
+				maxTokens = int(budget) + 8192
+			}
+			params.Thinking = anthropic.ThinkingConfigParamOfEnabled(budget)
+		}
+	}
+	params.MaxTokens = int64(maxTokens)
+
+	// Anthropic rejects a non-default temperature when thinking is on, and Opus
+	// 4.7 and later reject sampling params outright.
+	if req.Temperature != nil && sampling && !thinking {
 		params.Temperature = param.NewOpt(*req.Temperature)
 	}
 	if len(req.StopSequences) > 0 {
