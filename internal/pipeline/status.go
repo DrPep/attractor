@@ -8,7 +8,9 @@ import (
 	"github.com/nigelpepper/attractor/internal/llm"
 )
 
-// NodeStatus is the persisted result of a completed node.
+// NodeStatus is the persisted result of a completed node. Field names match the
+// historical Python schema so prior runs stay loadable; model/provider are newer
+// additions and are omitted when the node ran no LLM.
 type NodeStatus struct {
 	Outcome            string         `json:"outcome"`
 	PreferredNextLabel string         `json:"preferred_next_label"`
@@ -16,6 +18,8 @@ type NodeStatus struct {
 	ContextUpdates     map[string]any `json:"context_updates"`
 	Notes              string         `json:"notes"`
 	Usage              *llm.Usage     `json:"usage,omitempty"`
+	Model              string         `json:"model,omitempty"`
+	Provider           string         `json:"provider,omitempty"`
 }
 
 // WriteStatus writes status.json for a node.

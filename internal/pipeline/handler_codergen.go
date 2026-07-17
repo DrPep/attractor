@@ -77,6 +77,12 @@ func (h *CodergenHandler) Execute(ctx context.Context, node *Node, pctx *Pipelin
 	model := firstNonEmpty(h.modelOverride, node.LLMModel(), llm.DefaultModel)
 	provider := firstNonEmpty(h.providerOverride, node.LLMProvider())
 
+	// Recorded in status.json so a run can be traced back to what served it.
+	// Mirrors the client's routing: an explicit provider, else inferred from the
+	// model id. The client's own default is a further fallback we can't see from
+	// here, so leave it blank rather than record a guess.
+	recordedProvider := firstNonEmpty(provider, llm.ResolveProvider(model))
+
 	systemPrompt := agent.CodingAgentSystemPrompt
 	var toolRegistry *tools.ToolRegistry
 	if len(node.Skills()) > 0 && h.skillRegistry != nil {
@@ -98,7 +104,7 @@ func (h *CodergenHandler) Execute(ctx context.Context, node *Node, pctx *Pipelin
 
 	artifactsDir := filepath.Join(runDir, "artifacts", node.ID)
 	if err := os.MkdirAll(artifactsDir, 0o755); err != nil {
-		return Outcome{Status: "fail", Notes: err.Error()}, nil
+		return Outcome{Status: "fail", Notes: err.Error(), Model: model, Provider: recordedProvider}, nil
 	}
 	stageContextFiles(artifactsDir)
 
@@ -133,11 +139,13 @@ func (h *CodergenHandler) Execute(ctx context.Context, node *Node, pctx *Pipelin
 
 	result, err := session.Submit(ctx, prompt)
 	if err != nil {
+		// Record the model on the failure path too: provider errors are often
+		// model-specific, and this is what identifies the culprit after the fact.
 		_ = WriteResponse(node.ID, "Error: "+err.Error(), runDir)
 		if node.AutoStatus() {
-			return Outcome{Status: "success", Notes: "Auto-status: " + err.Error()}, nil
+			return Outcome{Status: "success", Notes: "Auto-status: " + err.Error(), Model: model, Provider: recordedProvider}, nil
 		}
-		return Outcome{Status: "fail", Notes: err.Error()}, nil
+		return Outcome{Status: "fail", Notes: err.Error(), Model: model, Provider: recordedProvider}, nil
 	}
 
 	responseText := result.FinalResponse
@@ -149,6 +157,8 @@ func (h *CodergenHandler) Execute(ctx context.Context, node *Node, pctx *Pipelin
 		Notes:          fmt.Sprintf("Completed with %d tool calls in %d turns", result.ToolCallsMade, result.TurnsUsed),
 		ContextUpdates: map[string]any{node.ID + ".response": responseText},
 		Usage:          &usage,
+		Model:          model,
+		Provider:       recordedProvider,
 	}, nil
 }
 

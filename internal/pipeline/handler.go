@@ -15,6 +15,8 @@ type Outcome struct {
 	ContextUpdates   map[string]any
 	Notes            string
 	Usage            *llm.Usage // token usage, when the handler ran an LLM
+	Model            string     // model id, when the handler ran an LLM
+	Provider         string     // provider that served Model
 }
 
 // Handler executes a single node type.

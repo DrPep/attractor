@@ -18,6 +18,7 @@ import (
 
 	"github.com/nigelpepper/attractor/internal/agent"
 	"github.com/nigelpepper/attractor/internal/agent/tools"
+	"github.com/nigelpepper/attractor/internal/llm"
 	"github.com/nigelpepper/attractor/internal/llm/adapters"
 	"github.com/nigelpepper/attractor/internal/pipeline"
 	"github.com/nigelpepper/attractor/internal/web"
@@ -176,7 +177,7 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runDir, "run-dir", "", "Directory for run artifacts")
 	cmd.Flags().BoolVar(&resume, "resume", false, "Resume from last checkpoint")
 	cmd.Flags().BoolVar(&restartFromSuccess, "restart-from-success", false, "Pick a previously successful node and restart from it")
-	cmd.Flags().StringVar(&model, "model", "", "Override LLM model (e.g. claude-opus-4-7)")
+	cmd.Flags().StringVar(&model, "model", "", "Override LLM model (e.g. claude-opus-4-8)")
 	cmd.Flags().StringVar(&provider, "provider", "", "Override LLM provider (openai, anthropic, gemini)")
 	cmd.Flags().StringVar(&skillsDir, "skills-dir", "", "Directory to load skills from")
 	cmd.Flags().BoolVar(&webEnabled, "web", false, "Launch the web UI and stream this run into it")
@@ -340,7 +341,7 @@ func chatCmd() *cobra.Command {
 			if model != "" || provider != "" {
 				m := model
 				if m == "" {
-					m = "claude-opus-4-7"
+					m = llm.DefaultModel
 				}
 				p := provider
 				if p == "" {
@@ -388,7 +389,7 @@ func chatCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&model, "model", "", "Override LLM model (e.g. claude-opus-4-7)")
+	cmd.Flags().StringVar(&model, "model", "", "Override LLM model (e.g. claude-opus-4-8)")
 	cmd.Flags().StringVar(&provider, "provider", "", "Override LLM provider (openai, anthropic, gemini)")
 	return cmd
 }
